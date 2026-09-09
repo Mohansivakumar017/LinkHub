@@ -1,0 +1,41 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Request rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum(rate(linkhub_http_requests_total[5m]))", "legendFormat": "requests/sec" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx error rate",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sum(rate(linkhub_http_errors_total[5m]))", "legendFormat": "errors/sec" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request latency p95",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(linkhub_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "URL cache operations",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "sum(rate(linkhub_url_cache_hits_total[5m]))", "legendFormat": "hits" },
+        { "expr": "sum(rate(linkhub_url_cache_misses_total[5m]))", "legendFormat": "misses" },
+        { "expr": "sum(rate(linkhub_url_cache_errors_total[5m]))", "legendFormat": "errors" }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["linkhub"],
+  "title": "LinkHub Overview",
+  "time": { "from": "now-6h", "to": "now" },
+  "timezone": "browser",
+  "version": 1
+}

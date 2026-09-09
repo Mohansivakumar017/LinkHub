@@ -1,0 +1,166 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api/v1
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env.example
+    environment:
+      DEBUG: "false"
+      CELERY_ENABLED: "true"
+      CELERY_EMAIL_ENABLED: "true"
+      RATE_LIMIT_ENABLED: "true"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USE_TLS: "false"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - media_data:/app/media
+
+  migrate:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env.example
+    environment:
+      DEBUG: "false"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USE_TLS: "false"
+    command: alembic upgrade head
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  worker:
+    build:
+        context: ./backend
+    env_file:
+        - ./backend/.env.example
+    environment:
+        DEBUG: "false"
+        CELERY_ENABLED: "true"
+        CELERY_EMAIL_ENABLED: "true"
+        SMTP_HOST: mailpit
+        SMTP_PORT: "1025"
+        SMTP_USE_TLS: "false"
+    command: celery -A app.infrastructure.workers.celery_app.celery_app worker -Q linkhub,emails,analytics,maintenance --loglevel=info
+    healthcheck:
+      test: ["CMD", "python", "-c", "import celery; from app.infrastructure.workers.celery_app import celery_app; print(celery_app.main)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+        migrate:
+          condition: service_completed_successfully
+        db:
+          condition: service_healthy
+        redis:
+          condition: service_healthy
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports:
+      - "8025:8025"
+    restart: unless-stopped
+
+  beat:
+    build:
+        context: ./backend
+    env_file:
+        - ./backend/.env.example
+    environment:
+        DEBUG: "false"
+        CELERY_ENABLED: "true"
+        CELERY_EMAIL_ENABLED: "true"
+    command: celery -A app.infrastructure.workers.celery_app.celery_app beat --loglevel=info --pidfile=/tmp/celerybeat.pid
+    depends_on:
+        migrate:
+          condition: service_completed_successfully
+        redis:
+          condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: linkhub
+      POSTGRES_USER: linkhub
+      POSTGRES_PASSWORD: linkhub
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U linkhub -d linkhub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  grafana_data:
+  media_data:
