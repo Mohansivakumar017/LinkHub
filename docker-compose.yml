@@ -61,16 +61,16 @@ services:
 
   worker:
     build:
-        context: ./backend
+      context: ./backend
     env_file:
-        - ./backend/.env.example
+      - ./backend/.env.example
     environment:
-        DEBUG: "false"
-        CELERY_ENABLED: "true"
-        CELERY_EMAIL_ENABLED: "true"
-        SMTP_HOST: mailpit
-        SMTP_PORT: "1025"
-        SMTP_USE_TLS: "false"
+      DEBUG: "false"
+      CELERY_ENABLED: "true"
+      CELERY_EMAIL_ENABLED: "true"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USE_TLS: "false"
     command: celery -A app.infrastructure.workers.celery_app.celery_app worker -Q linkhub,emails,analytics,maintenance --loglevel=info
     healthcheck:
       test: ["CMD", "python", "-c", "import celery; from app.infrastructure.workers.celery_app import celery_app; print(celery_app.main)"]
@@ -78,12 +78,12 @@ services:
       timeout: 5s
       retries: 3
     depends_on:
-        migrate:
-          condition: service_completed_successfully
-        db:
-          condition: service_healthy
-        redis:
-          condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   mailpit:
@@ -94,19 +94,19 @@ services:
 
   beat:
     build:
-        context: ./backend
+      context: ./backend
     env_file:
-        - ./backend/.env.example
+      - ./backend/.env.example
     environment:
-        DEBUG: "false"
-        CELERY_ENABLED: "true"
-        CELERY_EMAIL_ENABLED: "true"
+      DEBUG: "false"
+      CELERY_ENABLED: "true"
+      CELERY_EMAIL_ENABLED: "true"
     command: celery -A app.infrastructure.workers.celery_app.celery_app beat --loglevel=info --pidfile=/tmp/celerybeat.pid
     depends_on:
-        migrate:
-          condition: service_completed_successfully
-        redis:
-          condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   db:
