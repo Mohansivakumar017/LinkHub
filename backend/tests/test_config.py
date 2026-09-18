@@ -6,7 +6,10 @@ from app.core.config import Settings
 
 def test_production_rejects_development_jwt_secret() -> None:
     with pytest.raises(ValidationError, match="JWT_SECRET_KEY"):
-        Settings(environment="production")
+        Settings(
+            environment="production",
+            jwt_secret_key="dev-only-change-this-jwt-secret-key-32chars-min",
+        )
 
 
 def test_production_accepts_explicit_security_configuration() -> None:
