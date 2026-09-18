@@ -5,11 +5,29 @@ services:
       args:
         VITE_API_BASE_URL: /api/v1
     ports:
-      - "8080:80"
+      - "8080:8080"
     depends_on:
       api:
         condition: service_healthy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    networks:
+      - public
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.10"
+          memory: 64M
 
   api:
     build:
@@ -40,8 +58,24 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     volumes:
       - media_data:/app/media
+    networks:
+      - public
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 1024M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
 
   migrate:
     build:
@@ -58,6 +92,16 @@ services:
       db:
         condition: service_healthy
     restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - internal
+    user: appuser
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
 
   worker:
     build:
@@ -85,12 +129,38 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      - internal
+    user: appuser
+    deploy:
+      resources:
+        limits:
+          cpus: "1.50"
+          memory: 768M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
 
   mailpit:
     image: axllent/mailpit:v1.21
     ports:
       - "8025:8025"
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - public
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
 
   beat:
     build:
@@ -101,13 +171,37 @@ services:
       DEBUG: "false"
       CELERY_ENABLED: "true"
       CELERY_EMAIL_ENABLED: "true"
-    command: celery -A app.infrastructure.workers.celery_app.celery_app beat --loglevel=info --pidfile=/tmp/celerybeat.pid
+    command: celery -A app.infrastructure.workers.celery_app.celery_app beat --loglevel=info --pidfile=/tmp/celerybeat.pid --schedule=/tmp/celerybeat-schedule
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from pathlib import Path; import os; pid=int(Path('/tmp/celerybeat.pid').read_text()); os.kill(pid, 0)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      - internal
+    user: appuser
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
 
   db:
     image: postgres:16-alpine
@@ -125,6 +219,18 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 2048M
+        reservations:
+          cpus: "0.50"
+          memory: 512M
 
   redis:
     image: redis:7-alpine
@@ -136,17 +242,54 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1", "--save", "300", "100"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
 
   prometheus:
     image: prom/prometheus:v2.54.1
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
     ports:
       - "9090:9090"
     depends_on:
       api:
         condition: service_healthy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    user: "65534:65534"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    networks:
+      - public
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1024M
 
   grafana:
     image: grafana/grafana:11.2.0
@@ -159,8 +302,32 @@ services:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    user: "472:472"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    networks:
+      - public
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+
+networks:
+  public:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true
 
 volumes:
   pg_data:
   grafana_data:
   media_data:
+  prometheus_data:
+  redis_data:

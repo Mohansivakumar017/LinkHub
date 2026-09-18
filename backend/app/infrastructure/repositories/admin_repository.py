@@ -4,16 +4,21 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.context import current_client_ip
 from app.infrastructure.db.models.audit_log import AuditLog
 from app.infrastructure.db.models.click import Click
 from app.infrastructure.db.models.organization import Organization
 from app.infrastructure.db.models.url import URL
 from app.infrastructure.db.models.user import User
+from app.infrastructure.repositories.url_repository import URLRepository
+from app.infrastructure.repositories.user_repository import UserRepository
 
 
 class AdminRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+        self._users = UserRepository(session)
+        self._urls = URLRepository(session)
 
     async def list_users(self, offset: int, limit: int) -> tuple[list[User], int]:
         total = await self._session.scalar(select(func.count()).select_from(User))
@@ -97,6 +102,27 @@ class AdminRepository:
                 resource_type=resource_type,
                 resource_id=resource_id,
                 details=details,
+                ip_address=current_client_ip(),
             )
         )
         await self._session.flush()
+
+    async def get_user(self, user_id: UUID) -> User | None:
+        return await self._users.get_by_id(user_id)
+
+    async def set_user_active(self, user: User, is_active: bool) -> None:
+        await self._users.set_active(user, is_active)
+
+    async def set_user_platform_admin(
+        self, user: User, is_platform_admin: bool
+    ) -> None:
+        await self._users.set_platform_admin(user, is_platform_admin)
+
+    async def get_url(self, url_id: UUID) -> URL | None:
+        return await self._urls.get_by_id(url_id)
+
+    async def restore_url(self, url: URL) -> None:
+        await self._urls.restore(url)
+
+    async def hard_delete_url(self, url: URL) -> None:
+        await self._urls.hard_delete(url)

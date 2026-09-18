@@ -27,6 +27,11 @@ CACHE_ERRORS = Counter(
     "linkhub_url_cache_errors_total",
     "Number of URL redirect cache operation errors.",
 )
+RATE_LIMIT_EXCEEDED = Counter(
+    "linkhub_rate_limit_exceeded_total",
+    "Number of HTTP requests rejected because the client rate limit was exhausted.",
+    ("path",),
+)
 
 
 def route_label(request_path: str, route: object | None) -> str:
@@ -57,6 +62,7 @@ __all__ = [
     "CACHE_HITS",
     "CACHE_MISSES",
     "CONTENT_TYPE_LATEST",
+    "RATE_LIMIT_EXCEEDED",
     "REQUEST_COUNT",
     "REQUEST_ERRORS",
     "REQUEST_LATENCY",

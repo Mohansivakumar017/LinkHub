@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from app.core.config import get_settings
+from app.core.metrics import RATE_LIMIT_EXCEEDED
 
 settings = get_settings()
 logger = logging.getLogger("linkhub.rate_limit")
@@ -69,6 +70,7 @@ class RedisTokenBucketRateLimitMiddleware(BaseHTTPMiddleware):
                 headers={"Retry-After": "5"},
             )
         if not allowed:
+            RATE_LIMIT_EXCEEDED.labels(request.url.path).inc()
             return JSONResponse(
                 status_code=429,
                 content={

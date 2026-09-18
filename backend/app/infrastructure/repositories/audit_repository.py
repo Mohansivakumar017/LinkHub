@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.context import current_client_ip
 from app.infrastructure.db.models.audit_log import AuditLog
 
 
@@ -25,6 +26,7 @@ class AuditRepository:
                 resource_type=resource_type,
                 resource_id=resource_id,
                 details=details,
+                ip_address=current_client_ip(),
             )
         )
         await self._session.flush()

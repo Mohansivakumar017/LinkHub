@@ -1,6 +1,8 @@
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_platform_admin
@@ -15,6 +17,14 @@ def _page(
     offset: int, limit: int, total: int, items: list[dict[str, Any]]
 ) -> dict[str, Any]:
     return {"items": items, "offset": offset, "limit": limit, "total": total}
+
+
+class SetActiveRequest(BaseModel):
+    is_active: bool
+
+
+class SetPlatformAdminRequest(BaseModel):
+    is_platform_admin: bool
 
 
 @router.get("/users")
@@ -88,7 +98,127 @@ async def list_audit_logs(
     return _page(offset, limit, total, [
         {"id": str(log.id), "actor_user_id": str(log.actor_user_id) if log.actor_user_id else None,
          "action": log.action, "resource_type": log.resource_type,
-         "resource_id": log.resource_id, "details": log.details,
-         "created_at": log.created_at.isoformat()}
+         "resource_id": log.resource_id, "ip_address": log.ip_address,
+         "details": log.details, "created_at": log.created_at.isoformat()}
         for log in logs
     ])
+
+
+@router.patch("/users/{user_id}/active")
+async def set_user_active(
+    user_id: UUID,
+    payload: SetActiveRequest,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_platform_admin),
+) -> dict[str, Any]:
+    repo = AdminRepository(session)
+    target = await repo.get_user(user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+    if str(target.id) == str(current_user.id) and not payload.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cannot deactivate your own account",
+        )
+    await repo.set_user_active(target, payload.is_active)
+    await repo.record_audit(
+        current_user.id,
+        "admin.user.active_changed",
+        "user",
+        str(target.id),
+        {"is_active": payload.is_active},
+    )
+    await session.commit()
+    return {
+        "id": str(target.id),
+        "email": target.email,
+        "is_active": target.is_active,
+        "is_platform_admin": target.is_platform_admin,
+    }
+
+
+@router.patch("/users/{user_id}/platform-admin")
+async def set_user_platform_admin(
+    user_id: UUID,
+    payload: SetPlatformAdminRequest,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_platform_admin),
+) -> dict[str, Any]:
+    repo = AdminRepository(session)
+    target = await repo.get_user(user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+    if str(target.id) == str(current_user.id) and not payload.is_platform_admin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cannot revoke your own platform admin status",
+        )
+    await repo.set_user_platform_admin(target, payload.is_platform_admin)
+    await repo.record_audit(
+        current_user.id,
+        "admin.user.platform_admin_changed",
+        "user",
+        str(target.id),
+        {"is_platform_admin": payload.is_platform_admin},
+    )
+    await session.commit()
+    return {
+        "id": str(target.id),
+        "email": target.email,
+        "is_active": target.is_active,
+        "is_platform_admin": target.is_platform_admin,
+    }
+
+
+@router.patch("/links/{link_id}/restore")
+async def restore_link(
+    link_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_platform_admin),
+) -> dict[str, Any]:
+    repo = AdminRepository(session)
+    target = await repo.get_url(link_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="link not found")
+    if not target.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="link is not deleted",
+        )
+    await repo.restore_url(target)
+    await repo.record_audit(
+        current_user.id,
+        "admin.link.restored",
+        "url",
+        str(target.id),
+        {"short_code": target.short_code},
+    )
+    await session.commit()
+    return {
+        "id": str(target.id),
+        "short_code": target.short_code,
+        "is_deleted": target.is_deleted,
+        "is_archived": target.is_archived,
+    }
+
+
+@router.delete("/links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def hard_delete_link(
+    link_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_platform_admin),
+) -> None:
+    repo = AdminRepository(session)
+    target = await repo.get_url(link_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="link not found")
+    short_code = target.short_code
+    await repo.record_audit(
+        current_user.id,
+        "admin.link.hard_deleted",
+        "url",
+        str(target.id),
+        {"short_code": short_code, "organization_id": str(target.organization_id)},
+    )
+    await repo.hard_delete_url(target)
+    await session.commit()

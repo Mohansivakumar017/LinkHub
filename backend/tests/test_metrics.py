@@ -25,21 +25,40 @@ def test_route_label_does_not_use_unmatched_user_paths() -> None:
 
 
 def test_metrics_records_http_errors() -> None:
-    @app.get("/test-metrics-error", include_in_schema=False)
+    from fastapi import FastAPI, HTTPException
+    from fastapi.exceptions import RequestValidationError
+
+    from app.core.config import get_settings
+    from app.core.errors import (
+        http_exception_handler,
+        unhandled_exception_handler,
+        validation_exception_handler,
+    )
+    from app.core.middleware import (
+        RequestContextMiddleware,
+        SecurityHeadersMiddleware,
+    )
+    from app.presentation.api.metrics import router as metrics_router
+
+    test_app = FastAPI()
+    test_app.state.settings = get_settings()
+    test_app.add_exception_handler(HTTPException, http_exception_handler)
+    test_app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    test_app.add_exception_handler(Exception, unhandled_exception_handler)
+    test_app.add_middleware(RequestContextMiddleware)
+    test_app.add_middleware(SecurityHeadersMiddleware)
+    test_app.include_router(metrics_router)
+
+    @test_app.get("/test-metrics-error", include_in_schema=False)
     async def trigger_error() -> None:
         raise RuntimeError("simulated failure")
 
-    client = TestClient(app, raise_server_exceptions=False)
-    try:
-        response = client.get("/test-metrics-error")
-        assert response.status_code == 500
+    client = TestClient(test_app, raise_server_exceptions=False)
+    response = client.get("/test-metrics-error")
+    assert response.status_code == 500
 
-        metrics_response = client.get("/metrics")
-        assert metrics_response.status_code == 200
-        assert "linkhub_http_errors_total" in metrics_response.text
-        assert 'status="500"' in metrics_response.text
-        assert "linkhub_http_request_duration_seconds" in metrics_response.text
-    finally:
-        app.routes = [
-            route for route in app.routes if getattr(route, "path", None) != "/test-metrics-error"
-        ]
+    metrics_response = client.get("/metrics")
+    assert metrics_response.status_code == 200
+    assert "linkhub_http_errors_total" in metrics_response.text
+    assert 'status="500"' in metrics_response.text
+    assert "linkhub_http_request_duration_seconds" in metrics_response.text

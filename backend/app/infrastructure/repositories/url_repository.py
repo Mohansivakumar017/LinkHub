@@ -117,3 +117,12 @@ class URLRepository:
             )
         )
         return list(result.scalars().all())
+
+    async def restore(self, item: URL) -> None:
+        item.is_deleted = False
+        item.deleted_at = None
+        await self._session.flush()
+
+    async def hard_delete(self, item: URL) -> None:
+        await self._session.delete(item)
+        await self._session.flush()

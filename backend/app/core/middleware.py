@@ -5,6 +5,7 @@ import uuid
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from app.core.context import reset_request_context, set_request_context
 from app.core.metrics import (
     REQUEST_COUNT,
     REQUEST_ERRORS,
@@ -22,7 +23,17 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",", 1)[0].strip()
+        elif request.client:
+            client_ip = request.client.host
+        else:
+            client_ip = None
+
+        ctx_tokens = set_request_context(request_id, client_ip)
         request.state.request_id = request_id
+        request.state.client_ip = client_ip
 
         start = time.perf_counter()
         try:
@@ -37,12 +48,14 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                 "request_failed",
                 extra={
                     "request_id": request_id,
+                    "client_ip": client_ip,
                     "method": request.method,
                     "path": path,
                     "status_code": 500,
                     "duration_ms": round(duration_seconds * 1000, 2),
                 },
             )
+            reset_request_context(ctx_tokens)
             raise
 
         duration_seconds = time.perf_counter() - start
@@ -56,6 +69,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             "request_completed",
             extra={
                 "request_id": request_id,
+                "client_ip": client_ip,
                 "method": request.method,
                 "path": path,
                 "status_code": response.status_code,
@@ -65,6 +79,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Response-Time-ms"] = f"{duration_seconds * 1000:.2f}"
+        reset_request_context(ctx_tokens)
         return response
 
 

@@ -43,3 +43,11 @@ class UserRepository:
         user.full_name = full_name
         user.avatar_url = avatar_url
         await self._session.flush()
+
+    async def set_active(self, user: User, is_active: bool) -> None:
+        user.is_active = is_active
+        await self._session.flush()
+
+    async def set_platform_admin(self, user: User, is_platform_admin: bool) -> None:
+        user.is_platform_admin = is_platform_admin
+        await self._session.flush()
