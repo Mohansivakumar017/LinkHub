@@ -17,7 +17,7 @@ Enterprise Link Management Platform (SaaS) using:
 - Milestone 7: Background workers and scheduled cleanup ✅
 - Milestone 8: Monitoring, admin, deployment hardening, and scheduled notifications ✅
 - Local Docker runtime: running successfully on the user's machine ✅
-- Current work: post-login functional smoke testing
+- Current work: Priority 3 production hardening — list states, pagination, and acceptance coverage
 
 ## Important Folders
 - `backend/app/core` config, jwt, security, middleware, dependencies
@@ -146,6 +146,17 @@ Docker notes:
   `/settings` contains password and session security controls rather than
   duplicating the profile page. Shared-link password and private-link access
   behavior is covered by frontend unit tests.
+  The links workspace requests 50 links at a time and supports loading more
+  results, with explicit loading, empty, organization-selection, and API-error
+  states.
+  The links workspace visibly shows the selected organization name and UUID,
+  and uses a compact content/actions row layout. Organization pages also show
+  the selected organization UUID.
+  Organizations now show organization/member loading, empty, and API-error
+  states. Analytics now shows organization-selection, loading, empty-data,
+  refresh, and API-error states. The admin page consumes paginated responses
+  and supports loading more users, audit records, organizations, and links.
+  Admin audit activity can be filtered by action and resource type.
 
 ## Product status
 
@@ -194,4 +205,39 @@ sudo docker compose ps
 
 ## Resume Point
 
-The implementation and automated validation are complete. The remaining activity is interactive acceptance testing of the running Compose stack. Recent runtime fixes include recursive Celery email delivery and organization-role enum serialization; both are fixed and validated with 49 passing backend tests and Ruff. Continue from the smoke-test checklist above.
+The backend foundation and primary product flows are implemented. Priority 3
+production hardening is in progress. Completed in this track: links
+pagination/load-more and list states; organization/member loading and empty
+states; analytics loading, empty, and error states; and admin pagination/load
+more controls. Remaining goals: browser end-to-end coverage, audit-log UX
+filters, migration tests, worker retry tests, rate-limit runtime tests,
+complete CI Docker validation, and final security/configuration review.
+Recent runtime fixes include recursive Celery email delivery and
+organization-role enum serialization; both are fixed and validated with
+backend tests and Ruff. CI now runs the frontend Vitest suite before the
+production frontend build. Continue with the acceptance matrix before
+claiming a final production release.
+
+## Continuation Track
+
+When resuming this work, follow this order:
+
+1. Build and deploy the frontend after any pending UI changes:
+   `npm --prefix frontend run build`
+   `docker compose build frontend`
+   `docker compose up -d --no-deps frontend`
+2. Add Playwright browser acceptance tests for auth, organization invites,
+   private/password links, API-key lifecycle, role permissions, and member
+   removal.
+3. Add organization-scoped audit-log visibility and verify audit filters
+   against the running API.
+4. Add Alembic migration upgrade tests and Celery retry/failure tests.
+5. Validate Redis rate limiting and API-key revocation against the running
+   Compose stack.
+6. Verify the updated CI workflow on GitHub; it now includes frontend tests
+   before the frontend build. Keep backend checks and Docker image checks
+   green.
+7. Run the full smoke-test checklist and document any remaining failures.
+
+Do not claim the application is fully production-ready until the browser
+acceptance suite and deployment checks pass.

@@ -13,6 +13,7 @@ type Org = { id: string; name: string };
 export function LinksPage() {
   const { api } = useSession();
   const [orgs, setOrgs] = useState<Org[]>([]), [org, setOrg] = useState("");
+  const selectedOrg = orgs.find(item => item.id === org);
   const [links, setLinks] = useState<LinkItem[]>([]), [target, setTarget] = useState("");
   const [title, setTitle] = useState(""), [alias, setAlias] = useState("");
   const [expires, setExpires] = useState(""), [password, setPassword] = useState("");
@@ -20,14 +21,25 @@ export function LinksPage() {
   const [privateLink, setPrivateLink] = useState(false), [search, setSearch] = useState("");
   const [archived, setArchived] = useState(false), [selected, setSelected] = useState<string[]>([]);
   const [csv, setCsv] = useState(""), [file, setFile] = useState<File | null>(null);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(""), [error, setError] = useState("");
+  const [loading, setLoading] = useState(false), [hasMore, setHasMore] = useState(false);
   useEffect(() => { void api.request(`${apiBaseUrl}/organizations`).then(async r => r.ok && setOrgs(await r.json())); }, [api]);
-  async function load() {
+  async function load(append = false) {
     if (!org) return;
-    const q = new URLSearchParams({ limit: "100", descending: "true" });
+    setLoading(true); setError("");
+    const q = new URLSearchParams({ limit: "50", offset: append ? String(links.length) : "0", descending: "true" });
     if (search.trim()) q.set("search", search.trim()); if (archived) q.set("archived", "true");
     const r = await api.request(`${apiBaseUrl}/urls/organizations/${org}?${q}`);
-    if (r.ok) { setLinks(await r.json()); setSelected([]); } else setMessage("Could not load links");
+    if (r.ok) {
+      const next = await r.json() as LinkItem[];
+      setLinks(current => append ? [...current, ...next] : next);
+      setHasMore(next.length === 50);
+      if (!append) setSelected([]);
+    } else {
+      const body = await r.json().catch(() => ({})) as { detail?: string };
+      setError(body.detail ?? "Could not load links");
+    }
+    setLoading(false);
   }
   async function create(e: FormEvent) {
     e.preventDefault(); if (!org) return setMessage("Select an organization first");
@@ -80,9 +92,11 @@ export function LinksPage() {
     const b = await r.json(); window.open(b.original_url, "_blank", "noopener,noreferrer");
   }
   return <WorkspaceLayout title="Link workspace" description="Create, organize, and share trackable links." message={message}>
-    <section className="toolbar card"><select value={org} onChange={e => { setOrg(e.target.value); setLinks([]); }}><option value="">Select an organization</option>{orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select><button className="secondary" onClick={() => void load()}>Load links</button><input placeholder="Search links" value={search} onChange={e => setSearch(e.target.value)} /><label className="checkbox"><input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} /> Show archived</label></section>
+    <section className="toolbar card"><div className="organization-picker"><label>Organization<select value={org} onChange={e => { setOrg(e.target.value); setLinks([]); setHasMore(false); setError(""); }}><option value="">Select an organization</option>{orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>{selectedOrg && <div className="organization-context"><strong>{selectedOrg.name}</strong><span>Organization ID</span><code>{selectedOrg.id}</code></div>}</div><div className="link-toolbar-actions"><button className="secondary" onClick={() => void load()} disabled={!org || loading}>{loading ? "Loading…" : "Load links"}</button><label className="checkbox"><input type="checkbox" checked={archived} onChange={e => { setArchived(e.target.checked); setLinks([]); }} /> Show archived</label></div><label className="search-field">Search links<input placeholder="Search by title, alias, or URL" value={search} onChange={e => setSearch(e.target.value)} /></label></section>
+    {error && <p className="auth-error" role="alert">{error}</p>}
+    {!org && <section className="card empty-state"><h2>Select an organization</h2><p className="muted">Choose an organization above to view and manage its links.</p></section>}
     <section className="card"><h2>Create a link</h2><form className="create-form" onSubmit={create}><input placeholder="Long URL" value={target} onChange={e => setTarget(e.target.value)} required /><input placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} /><input placeholder="Custom alias" value={alias} onChange={e => setAlias(e.target.value)} /><input type="datetime-local" value={expires} onChange={e => setExpires(e.target.value)} title="Expiration" /><input type="number" min="1" placeholder="Click limit" value={clickLimit} onChange={e => setClickLimit(e.target.value)} /><input type="password" placeholder="Optional password" value={password} onChange={e => setPassword(e.target.value)} /><label className="checkbox"><input type="checkbox" checked={oneTime} onChange={e => setOneTime(e.target.checked)} /> One-time</label><label className="checkbox"><input type="checkbox" checked={privateLink} onChange={e => setPrivateLink(e.target.checked)} /> Private</label><button type="submit" disabled={!org}>Create link</button></form></section>
     <section className="card"><h2>CSV import</h2><form className="create-form" onSubmit={importCsv}><textarea placeholder="One URL per line (or original_url CSV header)" value={csv} onChange={e => setCsv(e.target.value)} /><button disabled={!org}>Import text</button></form><form className="create-form" onSubmit={upload}><input type="file" accept=".csv,text/csv" onChange={e => setFile(e.target.files?.[0] ?? null)} /><button disabled={!org || !file}>Upload CSV</button></form>{selected.length > 0 && <button className="danger" onClick={() => void bulkDelete()}>Delete selected ({selected.length})</button>}</section>
-    <section className="card"><div className="section-heading"><h2>Links</h2><span>{links.length} results</span></div>{links.map(l => <div className="link-row" key={l.id}><label><input type="checkbox" checked={selected.includes(l.id)} onChange={e => setSelected(s => e.target.checked ? [...s, l.id] : s.filter(id => id !== l.id))} /><strong>{l.title || l.short_code}</strong></label><a href={l.original_url} target="_blank" rel="noreferrer">{l.original_url}</a><span className="muted">{l.is_archived ? "Archived" : "Active"}{l.password_protected ? " · Protected" : ""}{l.is_private ? " · Private" : ""}</span><button className="secondary" onClick={() => void openLink(l)}>Open</button><button className="secondary" onClick={() => void edit(l)}>Edit</button><button className="secondary" onClick={() => void toggle(l)}>{l.is_archived ? "Restore" : "Archive"}</button><button className="secondary" onClick={() => void duplicate(l)}>Duplicate</button><button className="secondary" onClick={() => void qr(l)}>QR</button><button className="secondary" onClick={() => void copy(l)}>Copy</button><button className="danger" onClick={() => void remove(l)}>Delete</button></div>)}</section>
+    <section className="card"><div className="section-heading"><div><h2>Links</h2><span>{links.length ? `${links.length} loaded` : "No links loaded"}</span></div>{selected.length > 0 && <button className="danger" onClick={() => void bulkDelete()}>Delete selected ({selected.length})</button>}</div>{loading && !links.length ? <p className="muted">Loading links…</p> : !loading && !links.length && org ? <p className="muted">No links match the current filters.</p> : links.map(l => <article className="link-row" key={l.id}><div className="link-main"><label><input type="checkbox" checked={selected.includes(l.id)} onChange={e => setSelected(s => e.target.checked ? [...s, l.id] : s.filter(id => id !== l.id))} /><strong>{l.title || l.short_code}</strong></label><a href={l.original_url} target="_blank" rel="noreferrer">{l.original_url}</a><span className="muted">{l.is_archived ? "Archived" : "Active"}{l.password_protected ? " · Protected" : ""}{l.is_private ? " · Private" : ""}</span></div><div className="link-actions"><button className="secondary" onClick={() => void openLink(l)}>Open</button><button className="secondary" onClick={() => void edit(l)}>Edit</button><button className="secondary" onClick={() => void toggle(l)}>{l.is_archived ? "Restore" : "Archive"}</button><button className="secondary" onClick={() => void duplicate(l)}>Duplicate</button><button className="secondary" onClick={() => void qr(l)}>QR</button><button className="secondary" onClick={() => void copy(l)}>Copy</button><button className="danger" onClick={() => void remove(l)}>Delete</button></div></article>)}{hasMore && <div className="load-more"><button className="secondary" onClick={() => void load(true)} disabled={loading}>{loading ? "Loading…" : "Load more links"}</button></div>}</section>
   </WorkspaceLayout>;
 }
