@@ -137,18 +137,27 @@ Docker notes:
   workspace is rendered. It can resolve public links while logged out, accepts
   a link password before navigation, and allows a user to sign in on the same
   URL before retrying organization-members-only access.
+- The frontend now has a route-level application architecture at
+  `/workspace/links`, `/organizations`, `/analytics`, `/profile`, `/settings`,
+  `/api-keys`, and `/admin`, plus `/shared/<short_code>` for shared-link
+  access. These routes are composed by `src/app/router.tsx` and `AppShell`,
+  with feature-owned page modules and shared API/session/UI infrastructure.
+  `/profile` contains identity, avatar, and verification information;
+  `/settings` contains password and session security controls rather than
+  duplicating the profile page. Shared-link password and private-link access
+  behavior is covered by frontend unit tests.
 
 ## Product status
 
-The backend foundation and core link-management APIs are implemented and tested,
-but the frontend is not yet a complete production SaaS console. The current
-frontend still uses a single React application shell with sections for links,
-organizations, profile, API keys, analytics, and admin data rather than
-separate route-level pages. The next frontend milestone is to split these into
-route-aware workspace, organization, link, analytics, settings, API-key, and
-admin views while preserving the existing API behavior and authorization rules.
-Do not describe the application as 90% complete until those views, loading/error
-states, pagination, and end-to-end acceptance tests are finished.
+The backend foundation and core link-management APIs are implemented and tested.
+The frontend architecture milestone is complete: `App.tsx` is a composition
+root, routing and shell concerns live under `src/app`, bearer/refresh handling
+lives under `src/shared`, and each feature owns its page state and API handlers
+under `src/features`. `features/workspace/WorkspaceApp.tsx` is limited to the
+authentication entry flow; feature pages no longer render it as a shared
+dashboard. Profile and settings are separate pages, and shared-link access is
+handled independently from the authenticated workspace. End-to-end acceptance
+testing of the running Compose stack remains a separate validation milestone.
 - Analytics click queries use composite organization/time and URL/time indexes.
 - API-key usage counters use database-side atomic increments.
 - Login and refresh-token rotation require active, verified accounts.

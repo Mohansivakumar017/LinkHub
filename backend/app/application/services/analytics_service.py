@@ -97,11 +97,6 @@ class AnalyticsService:
             raise URLNotFoundError("url not found")
         if url.expires_at and url.expires_at <= datetime.now(UTC).replace(tzinfo=None):
             raise URLExpiredError("url expired")
-        password_hash = getattr(url, "password_hash", None)
-        if password_hash and (
-            password is None or not verify_password(password, password_hash)
-        ):
-            raise URLAccessDeniedError("link password required")
         if getattr(url, "is_private", False):
             if requester_user_id is None:
                 raise URLAccessDeniedError("private link requires authentication")
@@ -110,6 +105,11 @@ class AnalyticsService:
             )
             if membership is None:
                 raise URLAccessDeniedError("private link access denied")
+        password_hash = getattr(url, "password_hash", None)
+        if password_hash and (
+            password is None or not verify_password(password, password_hash)
+        ):
+            raise URLAccessDeniedError("link password required")
 
         click_count = await self._clicks.count_for_url(url.id)
         if url.is_archived:
