@@ -222,7 +222,7 @@ class OrganizationService:
         await self._session.commit()
 
     async def accept_invite(self, user_id: UUID, invite_token: str) -> UUID:
-        invite_hash = hash_token(invite_token)
+        invite_hash = hash_token(invite_token.strip())
         invite = await self._invites.get_by_token_hash(invite_hash)
         now = datetime.now(UTC).replace(tzinfo=None)
         if invite is None or invite.accepted_at is not None or invite.expires_at <= now:

@@ -85,6 +85,22 @@ h1 { margin-bottom: 8px; }
 .api-key-output { padding: 12px; overflow-wrap: anywhere; background: #fff7d6; border-radius: 8px; color: #6b5200; font-family: monospace; }
 .secret-output { display: flex; align-items: center; gap: 12px; }
 .secret-output .api-key-output { flex: 1; }
+.api-key-form { display: flex; align-items: end; gap: 12px; margin-top: 18px; }
+.api-key-form label { display: grid; flex: 1; gap: 7px; color: #4d5b73; font-size: 13px; font-weight: 650; }
+.api-key-form button { min-height: 46px; }
+.api-key-list { display: grid; gap: 12px; margin-top: 18px; }
+.api-key-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 16px; border: 1px solid #e7ebf3; border-radius: 10px; }
+.api-key-row.is-revoked { background: #fafafa; opacity: .75; }
+.api-key-details { display: grid; gap: 6px; min-width: 0; }
+.api-key-title { display: flex; align-items: center; gap: 10px; }
+.api-key-details code { color: #53627c; font-size: 13px; }
+.api-key-details small { color: #7a869a; }
+.status-pill { padding: 3px 8px; border-radius: 99px; font-size: 11px; font-weight: 750; }
+.status-pill.active { color: #16724a; background: #e8fff3; }
+.status-pill.revoked { color: #9b3143; background: #fff0f2; }
+.api-key-help { margin-top: 18px; }
+.api-key-help pre { overflow-x: auto; padding: 14px; border-radius: 8px; background: #172033; color: #e4eaff; }
+@media (max-width: 700px) { .api-key-form, .api-key-row { align-items: stretch; flex-direction: column; } .api-key-form button, .api-key-row button { width: 100%; } }
 .text-link { border: 0; padding: 0; background: transparent; color: #2563eb; cursor: pointer; font: inherit; text-decoration: underline; }
 .role-label { display: block; color: #64748b; font-size: 0.8rem; margin-top: 2px; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 20px; background: rgb(15 23 42 / 55%); }
