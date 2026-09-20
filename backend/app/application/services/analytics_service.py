@@ -35,6 +35,14 @@ class URLAccessDeniedError(Exception):
     pass
 
 
+class URLExpiredError(URLNotFoundError):
+    pass
+
+
+class URLClickLimitReachedError(URLNotFoundError):
+    pass
+
+
 class AnalyticsService:
     def __init__(
         self,
@@ -85,10 +93,10 @@ class AnalyticsService:
                 self._urls, "get_by_short_code_for_update", self._urls.get_by_short_code
             )
             url = await get_for_update(short_code)
-        if url is None or url.is_deleted or url.is_archived:
+        if url is None or url.is_deleted:
             raise URLNotFoundError("url not found")
         if url.expires_at and url.expires_at <= datetime.now(UTC).replace(tzinfo=None):
-            raise URLNotFoundError("url expired")
+            raise URLExpiredError("url expired")
         password_hash = getattr(url, "password_hash", None)
         if password_hash and (
             password is None or not verify_password(password, password_hash)
@@ -104,10 +112,16 @@ class AnalyticsService:
                 raise URLAccessDeniedError("private link access denied")
 
         click_count = await self._clicks.count_for_url(url.id)
+        if url.is_archived:
+            if url.one_time and click_count >= 1:
+                raise URLClickLimitReachedError("one-time link already used")
+            if url.click_limit and click_count >= url.click_limit:
+                raise URLClickLimitReachedError("click limit reached")
+            raise URLNotFoundError("url not found")
         if url.one_time and click_count >= 1:
-            raise URLNotFoundError("url not found")
+            raise URLClickLimitReachedError("one-time link already used")
         if url.click_limit and click_count >= url.click_limit:
-            raise URLNotFoundError("url not found")
+            raise URLClickLimitReachedError("click limit reached")
 
         visitor_key = self._make_visitor_key(context.ip_address, context.user_agent)
         browser, os_name, device = self._parse_user_agent(context.user_agent)

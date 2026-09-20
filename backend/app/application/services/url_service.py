@@ -69,6 +69,7 @@ class URLService:
         is_private: bool = False,
     ):
         await self._require_membership(organization_id, owner_user_id)
+        expires_at = self._normalize_expiration(expires_at)
         short_code = await self._resolve_short_code(custom_alias)
         try:
             item = await self._urls.create(
@@ -95,6 +96,8 @@ class URLService:
 
     async def update_url(self, organization_id: UUID, requester_user_id: UUID, url_id: UUID, **changes):
         await self._require_membership(organization_id, requester_user_id)
+        if "expires_at" in changes:
+            changes["expires_at"] = self._normalize_expiration(changes["expires_at"])
         get_for_update = getattr(self._urls, "get_by_id_for_update", self._urls.get_by_id)
         item = await get_for_update(url_id)
         if item is None or item.organization_id != organization_id or item.is_deleted:
@@ -266,6 +269,12 @@ class URLService:
         membership = await self._members.get_membership(organization_id, user_id)
         if membership is None:
             raise URLPermissionDeniedError("organization access denied")
+
+    @staticmethod
+    def _normalize_expiration(value: datetime | None) -> datetime | None:
+        if value is None or value.tzinfo is None:
+            return value
+        return value.astimezone(UTC).replace(tzinfo=None)
 
     async def _resolve_short_code(self, custom_alias: str | None) -> str:
         if custom_alias:

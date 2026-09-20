@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import lazyload
 
 from app.infrastructure.db.models.refresh_token import RefreshToken
 
@@ -19,7 +20,7 @@ class RefreshTokenRepository:
 
     async def get_by_hash(self, token_hash: str) -> RefreshToken | None:
         query = (
-            select(RefreshToken)
+            select(RefreshToken).options(lazyload(RefreshToken.user))
             .where(RefreshToken.token_hash == token_hash)
             .with_for_update()
         )

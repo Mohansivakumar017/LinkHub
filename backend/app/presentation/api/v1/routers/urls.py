@@ -21,6 +21,8 @@ from app.application.services.analytics_service import (
     AnalyticsService,
     ClickContext,
     URLAccessDeniedError,
+    URLClickLimitReachedError,
+    URLExpiredError,
 )
 from app.application.services.url_service import (
     URLAliasConflictError,
@@ -86,6 +88,7 @@ def _to_response(item) -> dict:
         "one_time": item.one_time,
         "click_limit": item.click_limit,
         "is_private": item.is_private,
+        "password_protected": bool(getattr(item, "password_hash", None)),
         "is_archived": item.is_archived,
     }
 
@@ -200,6 +203,8 @@ async def resolve_short_code(
         )
     except URLAccessDeniedError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    except (URLExpiredError, URLClickLimitReachedError) as exc:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(exc)) from exc
     except URLNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -232,6 +237,8 @@ async def redirect_short_code(
         )
     except URLAccessDeniedError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    except (URLExpiredError, URLClickLimitReachedError) as exc:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(exc)) from exc
     except URLNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return RedirectResponse(

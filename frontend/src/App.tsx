@@ -6,6 +6,8 @@ type LinkItem = {
   original_url: string;
   title?: string | null;
   custom_alias?: string | null;
+  is_private: boolean;
+  password_protected: boolean;
   is_archived: boolean;
 };
 
@@ -13,6 +15,7 @@ type Organization = {
   id: string;
   name: string;
   slug: string;
+  owner_user_id: string;
 };
 
 type Overview = {
@@ -22,6 +25,7 @@ type Overview = {
 };
 
 type Profile = {
+  id: string;
   email: string;
   full_name?: string | null;
   avatar_url?: string | null;
@@ -49,6 +53,14 @@ type AdminLink = {
   is_archived: boolean;
   is_deleted: boolean;
   created_at: string;
+};
+type LinkAccessRequest = {
+  link: LinkItem;
+  password: string;
+  error: string;
+  targetWindow: Window | null;
+  sameTab: boolean;
+  submitting: boolean;
 };
 
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
@@ -103,6 +115,14 @@ export default function App() {
   const [timeSeries, setTimeSeries] = useState<AnalyticsRow[]>([]);
   const [breakdown, setBreakdown] = useState<AnalyticsRow[]>([]);
   const [breakdownDimension, setBreakdownDimension] = useState("browser");
+  const [linkAccess, setLinkAccess] = useState<LinkAccessRequest | null>(null);
+  const [sharedLinkCode] = useState(
+    () => new URLSearchParams(window.location.search).get("link") ?? "",
+  );
+  const [sharedLinkPassword, setSharedLinkPassword] = useState("");
+  const [sharedLinkError, setSharedLinkError] = useState("");
+  const [sharedLinkLoading, setSharedLinkLoading] = useState(false);
+  const [sharedLinkRequiresPassword, setSharedLinkRequiresPassword] = useState(false);
 
   const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -131,9 +151,6 @@ export default function App() {
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
     if (!refreshResponse.ok) {
-      localStorage.removeItem("linkhub_access_token");
-      localStorage.removeItem("linkhub_refresh_token");
-      setToken("");
       return response;
     }
     const refreshed = await refreshResponse.json() as {
@@ -159,9 +176,6 @@ export default function App() {
 
     const items = (await response.json()) as Organization[];
     setOrganizations(items);
-    if (!organizationId && items.length > 0) {
-      setOrganizationId(items[0].id);
-    }
   }
 
   async function loadProfile(): Promise<Profile | null> {
@@ -297,6 +311,38 @@ export default function App() {
     localStorage.removeItem("linkhub_access_token");
     localStorage.removeItem("linkhub_refresh_token");
     setToken("");
+    setEmail("");
+    setPassword("");
+    setFullName("");
+    setProfileName("");
+    setRecoveryToken("");
+    setOrganizationId("");
+    setOrganizations([]);
+    setLinks([]);
+    setMembers([]);
+    setProfile(null);
+    setApiKeys([]);
+    setNewApiKey("");
+    setInviteToken("");
+    setAcceptInviteToken("");
+    setTarget("");
+    setLinkTitle("");
+    setLinkAlias("");
+    setLinkExpiresAt("");
+    setLinkPassword("");
+    setLinkClickLimit("");
+    setLinkOneTime(false);
+    setLinkPrivate(false);
+    setSearch("");
+    setSelectedLinks([]);
+    setOverview(null);
+    setTimeSeries([]);
+    setBreakdown([]);
+    setMessage("");
+    setIsRegistering(false);
+    setIsRecovering(false);
+    setIsResetting(false);
+    setIsVerifying(false);
   }
 
   useEffect(() => {
@@ -330,6 +376,11 @@ export default function App() {
   }
 
   async function transferOwnership(member: OrganizationMember) {
+    const currentMember = members.find((item) => item.user_id === profile?.id);
+    if (currentMember?.role !== "owner") {
+      setMessage("Only the organization owner can transfer ownership");
+      return;
+    }
     if (!window.confirm(`Transfer ownership to ${member.email}?`)) return;
     const response = await apiFetch(
       `${apiBase}/organizations/${organizationId}/transfer-ownership`,
@@ -340,6 +391,23 @@ export default function App() {
       },
     );
     setMessage(response.ok ? "Ownership transferred" : "Could not transfer ownership");
+    if (response.ok) await loadMembers();
+  }
+
+  async function removeMember(member: OrganizationMember) {
+    const currentMember = members.find((item) => item.user_id === profile?.id);
+    const canRemove = currentMember?.role === "owner"
+      || (currentMember?.role === "admin" && member.role === "member");
+    if (!canRemove) {
+      setMessage("You do not have permission to remove this member");
+      return;
+    }
+    if (!window.confirm(`Remove ${member.email} from this organization? They will lose access to private links.`)) return;
+    const response = await apiFetch(
+      `${apiBase}/organizations/${organizationId}/members/${member.user_id}`,
+      { method: "DELETE", headers: authHeaders },
+    );
+    setMessage(response.ok ? "Member removed" : "Could not remove member");
     if (response.ok) await loadMembers();
   }
 
@@ -402,11 +470,25 @@ export default function App() {
       setMessage("Could not create API key");
       return;
     }
+
     const body = (await response.json()) as { key: string };
     setNewApiKey(body.key);
     setApiKeyName("");
     setMessage("API key created. Copy it now; it will not be shown again.");
     await loadApiKeys();
+  }
+
+  async function copyText(value: string) {
+    await navigator.clipboard.writeText(value);
+    setMessage("Copied to clipboard");
+  }
+
+  async function copyLinkUrl(link: LinkItem) {
+    const publicLinkUrl = new URL(
+      `/?link=${encodeURIComponent(link.short_code)}`,
+      window.location.origin,
+    ).toString();
+    await copyText(publicLinkUrl);
   }
 
   async function revokeApiKey(id: string) {
@@ -416,6 +498,21 @@ export default function App() {
     });
     setMessage(response.ok ? "API key revoked" : "Could not revoke API key");
     if (response.ok) await loadApiKeys();
+  }
+
+  async function rotateApiKey(id: string) {
+    const response = await apiFetch(`${apiBase}/api-keys/${id}/rotate`, {
+      method: "POST",
+      headers: authHeaders,
+    });
+    if (!response.ok) {
+      setMessage("Could not rotate API key");
+      return;
+    }
+    const body = await response.json() as { key: string };
+    setNewApiKey(body.key);
+    setMessage("API key rotated. Update your integration and copy the new key now.");
+    await loadApiKeys();
   }
 
   async function createOrganization(event: FormEvent) {
@@ -499,7 +596,14 @@ export default function App() {
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      setMessage("Could not create link");
+      let detail = "Could not create link";
+      try {
+        const body = await response.json() as { detail?: string; error?: { message?: string } };
+        detail = body.detail ?? body.error?.message ?? detail;
+      } catch {
+        // Some proxies return an empty/non-JSON error response.
+      }
+      setMessage(detail);
       return;
     }
 
@@ -668,25 +772,152 @@ export default function App() {
     await loadOrganizations();
   }
 
-  if (!token) {
+  async function openSharedLink(password?: string) {
+    if (!sharedLinkCode) return;
+    setSharedLinkLoading(true);
+    setSharedLinkError("");
+    const query = password
+      ? `?password=${encodeURIComponent(password)}`
+      : "";
+    const response = await apiFetch(`${apiBase}/urls/resolve/${sharedLinkCode}${query}`, {
+      headers: authHeaders,
+    });
+    if (!response.ok) {
+      let detail = "Could not open link";
+      try {
+        const body = await response.json() as { detail?: string; error?: { message?: string } };
+        detail = body.detail ?? body.error?.message ?? detail;
+      } catch {
+        // Keep the generic message when the response is not JSON.
+      }
+      if (response.status === 401 && detail === "link password required" && !password) {
+        setSharedLinkRequiresPassword(true);
+        setSharedLinkError("This link is password protected. Enter the password to continue.");
+      } else if (response.status === 401 && detail === "private link requires authentication") {
+        setSharedLinkError("Sign in to continue. This link is restricted to organization members.");
+      } else {
+        setSharedLinkError(detail);
+      }
+      setSharedLinkLoading(false);
+      return;
+    }
+    const body = await response.json() as { original_url: string };
+    window.location.assign(body.original_url);
+    setSharedLinkLoading(false);
+  }
+
+  function openLink(link: LinkItem) {
+    if (link.password_protected) {
+      setLinkAccess({ link, password: "", error: "", targetWindow: null, sameTab: false, submitting: false });
+      return;
+    }
+    const targetWindow = window.open("", "_blank");
+    if (!targetWindow) {
+      setMessage("Your browser blocked the new tab. Allow pop-ups for LinkHub and try again.");
+      return;
+    }
+    targetWindow.opener = null;
+    targetWindow.document.title = "Opening LinkHub link";
+    targetWindow.document.body.textContent = "Checking link access...";
+    void resolveAndNavigate(link, targetWindow);
+  }
+
+  async function resolveAndNavigate(link: LinkItem, targetWindow: Window, password?: string) {
+    const query = password ? `?password=${encodeURIComponent(password)}` : "";
+    const response = await apiFetch(`${apiBase}/urls/resolve/${link.short_code}${query}`, {
+      headers: authHeaders,
+    });
+    if (!response.ok) {
+      let detail = "Could not open link";
+      try {
+        const body = await response.json() as { detail?: string; error?: { message?: string } };
+        detail = body.detail ?? body.error?.message ?? detail;
+      } catch {
+        // Some proxies return an empty/non-JSON error response.
+      }
+      targetWindow.document.title = "LinkHub access";
+      targetWindow.document.body.textContent = detail;
+      return;
+    }
+    const body = await response.json() as { original_url: string };
+    targetWindow.location.assign(body.original_url);
+  }
+
+  async function submitLinkAccess(event: FormEvent) {
+    event.preventDefault();
+    if (!linkAccess) return;
+    setLinkAccess((current) => current ? { ...current, submitting: true, error: "" } : current);
+    const resolveLink = (password?: string) => {
+      const query = password ? `?password=${encodeURIComponent(password)}` : "";
+      return apiFetch(`${apiBase}/urls/resolve/${linkAccess.link.short_code}${query}`, {
+        headers: authHeaders,
+      });
+    };
+    const targetWindow = linkAccess.sameTab
+      ? null
+      : linkAccess.targetWindow ?? window.open("", "_blank");
+    if (!linkAccess.sameTab && !targetWindow) {
+      setLinkAccess((current) => current ? {
+        ...current,
+        error: "Your browser blocked the new tab. Allow pop-ups for LinkHub and try again.",
+        submitting: false,
+      } : current);
+      return;
+    }
+    if (targetWindow) targetWindow.opener = null;
+    const response = await resolveLink(linkAccess.password || undefined);
+    if (!response.ok) {
+      let detail = "Could not open link";
+      try {
+        const body = await response.json() as { detail?: string; error?: { message?: string } };
+        detail = body.detail ?? body.error?.message ?? detail;
+      } catch {
+        // Some proxies return an empty/non-JSON error response.
+      }
+      if (response.status === 401 && detail === "link password required") {
+        targetWindow?.close();
+        setLinkAccess((current) => current ? {
+          ...current,
+          error: "Enter the password for this link.",
+          submitting: false,
+        } : current);
+        return;
+      }
+      setLinkAccess((current) => current ? {
+        ...current,
+        error: detail,
+        submitting: false,
+      } : current);
+      return;
+    }
+    const body = await response.json() as { original_url: string };
+    if (linkAccess.sameTab) {
+      window.location.assign(body.original_url);
+    } else {
+      targetWindow?.location.assign(body.original_url);
+    }
+    setLinkAccess(null);
+  }
+
+  if (!token && !sharedLinkCode) {
     return (
       <main className="centered">
         <section className="card auth-card">
           <p className="eyebrow">LINKHUB</p>
           <h1>{isVerifying ? "Verify your email" : isResetting ? "Choose a new password" : isRecovering ? "Reset your password" : isRegistering ? "Create your account" : "Smart links for teams"}</h1>
           <p className="muted">{isVerifying ? "Paste the verification token from your email." : isResetting ? "Paste the reset token and choose a new password." : isRecovering ? "Enter your email and we will send reset instructions." : isRegistering ? "Start managing links with your team." : "Sign in to manage links, analytics, and organizations."}</p>
-          <form onSubmit={login}>
-          {(isVerifying || isResetting) && <input placeholder="Token" value={recoveryToken} onChange={(event) => setRecoveryToken(event.target.value)} required />}
-          {isRegistering && !isRecovering && <input placeholder="Full name" value={fullName} onChange={(event) => setFullName(event.target.value)} required />}
-          {(!isRecovering || isVerifying) && !isResetting && <input type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} required />}
-          {!isRecovering && !isVerifying && <input type="password" placeholder={isResetting ? "New password" : "Password"} value={password} onChange={(event) => setPassword(event.target.value)} required />}
+          <form onSubmit={login} autoComplete="off">
+          {(isVerifying || isResetting) && <input autoComplete="off" placeholder="Token" value={recoveryToken} onChange={(event) => setRecoveryToken(event.target.value)} required />}
+          {isRegistering && !isRecovering && <input autoComplete="name" placeholder="Full name" value={fullName} onChange={(event) => setFullName(event.target.value)} required />}
+          {(!isRecovering || isVerifying) && !isResetting && <input autoComplete="email" type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} required />}
+          {(isResetting || (!isRecovering && !isVerifying)) && <input autoComplete={isResetting ? "new-password" : "current-password"} type="password" placeholder={isResetting ? "New password" : "Password"} value={password} onChange={(event) => setPassword(event.target.value)} required />}
           <button type="submit">{isVerifying ? "Verify email" : isResetting ? "Reset password" : isRecovering ? "Send reset email" : isRegistering ? "Create account" : "Sign in"}</button>
           </form>
-          {!isRecovering && !isRegistering && !isVerifying && !isResetting && <button className="text-button" onClick={() => setIsRecovering(true)}>Forgot password?</button>}
-          {!isRecovering && !isRegistering && !isVerifying && !isResetting && <button className="text-button" onClick={() => setIsVerifying(true)}>Verify email</button>}
+          {!isRecovering && !isRegistering && !isVerifying && !isResetting && <button type="button" className="text-button" onClick={() => setIsRecovering(true)}>Forgot password?</button>}
+          {!isRecovering && !isRegistering && !isVerifying && !isResetting && <button type="button" className="text-button" onClick={() => setIsVerifying(true)}>Verify email</button>}
           {isVerifying && <button type="button" className="text-button" onClick={() => void resendVerification()}>Resend verification email</button>}
-          {isRecovering && !isResetting && <button className="text-button" onClick={() => setIsResetting(true)}>I have a reset token</button>}
-          <button className="secondary auth-switch" onClick={() => { setIsRecovering(false); setIsResetting(false); setIsVerifying(false); setIsRegistering((value) => !value); }}>
+          {isRecovering && !isResetting && <button type="button" className="text-button" onClick={() => { setIsRecovering(false); setIsResetting(true); setPassword(""); }}>I have a reset token</button>}
+          <button type="button" className="secondary auth-switch" onClick={() => { setIsRecovering(false); setIsResetting(false); setIsVerifying(false); setRecoveryToken(""); setPassword(""); setIsRegistering((value) => !value); }}>
           {isRecovering || isVerifying || isResetting ? "Back to sign in" : isRegistering ? "Already have an account? Sign in" : "Need an account? Register"}
           </button>
           {message && <p className="notice">{message}</p>}
@@ -695,8 +926,171 @@ export default function App() {
     );
   }
 
+  if (sharedLinkCode) {
+    return (
+      <main className="centered">
+        <section className="card auth-card shared-link-page">
+          <p className="eyebrow">LINKHUB SHARED LINK</p>
+          <h1>Open shared link</h1>
+          <p className="muted">
+            Link code: <strong>{sharedLinkCode}</strong>
+          </p>
+          {!token ? (
+            <>
+              <p className="muted">
+                Public links can open without signing in. Organization-only links require
+                an account that belongs to the organization.
+              </p>
+              <button
+                type="button"
+                onClick={() => void openSharedLink()}
+                disabled={sharedLinkLoading}
+              >
+                {sharedLinkLoading ? "Checking link..." : "Open link"}
+              </button>
+              {sharedLinkRequiresPassword && (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void openSharedLink(sharedLinkPassword);
+                  }}
+                >
+                  <label>
+                    Link password
+                    <input
+                      autoFocus
+                      type="password"
+                      autoComplete="off"
+                      placeholder="Enter link password"
+                      value={sharedLinkPassword}
+                      onChange={(event) => setSharedLinkPassword(event.target.value)}
+                      required
+                    />
+                  </label>
+                  <button type="submit" disabled={sharedLinkLoading}>
+                    {sharedLinkLoading ? "Checking access..." : "Open with password"}
+                  </button>
+                </form>
+              )}
+              <p className="muted share-login-hint">
+                Need access to a private link? Sign in below, then this link will be
+                checked again automatically.
+              </p>
+              <form onSubmit={login} autoComplete="off">
+                <input
+                  autoComplete="email"
+                  type="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                />
+                <input
+                  autoComplete="current-password"
+                  type="password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                />
+                <button type="submit">Sign in</button>
+              </form>
+            </>
+          ) : (
+            <>
+              <p className="muted">
+                You are signed in as {profile?.email ?? email}. Verify access before
+                leaving LinkHub.
+              </p>
+              {sharedLinkRequiresPassword ? (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void openSharedLink(sharedLinkPassword);
+                  }}
+                >
+                  <label>
+                    Link password
+                    <input
+                      autoFocus
+                      type="password"
+                      autoComplete="off"
+                      placeholder="Enter link password"
+                      value={sharedLinkPassword}
+                      onChange={(event) => setSharedLinkPassword(event.target.value)}
+                      required
+                    />
+                  </label>
+                  <button type="submit" disabled={sharedLinkLoading}>
+                    {sharedLinkLoading ? "Checking access..." : "Open link"}
+                  </button>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void openSharedLink()}
+                  disabled={sharedLinkLoading}
+                >
+                  {sharedLinkLoading ? "Checking access..." : "Open link"}
+                </button>
+              )}
+              <button type="button" className="secondary" onClick={logout}>
+                Sign out
+              </button>
+            </>
+          )}
+          {sharedLinkError && <p className="notice">{sharedLinkError}</p>}
+          {message && <p className="notice">{message}</p>}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
+      {linkAccess && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="card access-dialog" role="dialog" aria-modal="true" aria-labelledby="link-access-title">
+            <h2 id="link-access-title">Open link</h2>
+            <p className="muted">This link requires access before it can be opened.</p>
+            <form onSubmit={submitLinkAccess}>
+              <label>Password (if required)
+                <input
+                  autoFocus
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="Enter link password"
+                  value={linkAccess.password}
+                  onChange={(event) => setLinkAccess((current) => current ? { ...current, password: event.target.value } : current)}
+                />
+              </label>
+              {linkAccess.error && <p className="notice">{linkAccess.error}</p>}
+              <div className="dialog-actions">
+                <button type="submit" disabled={linkAccess.submitting}>
+                  {linkAccess.submitting ? "Checking..." : "Open in new tab"}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    linkAccess.targetWindow?.close();
+                    setLinkAccess(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+      {sharedLinkCode && (
+        <section className="card shared-link-card">
+          <h2>Shared Link</h2>
+          <p className="muted">Link code: {sharedLinkCode}</p>
+          <button type="button" onClick={() => void openSharedLink()}>Open shared link</button>
+        </section>
+      )}
       <header className="topbar">
         <div>
           <p className="eyebrow">LINKHUB</p>
@@ -736,12 +1130,26 @@ export default function App() {
         </article>
       </section>}
       <section className="toolbar card">
-        <select value={organizationId} onChange={(event) => setOrganizationId(event.target.value)}>
+        <select value={organizationId} onChange={(event) => {
+          setOrganizationId(event.target.value);
+          setLinks([]);
+          setMembers([]);
+          setOverview(null);
+          setTimeSeries([]);
+          setBreakdown([]);
+        }}>
           <option value="">Select an organization</option>
           {organizations.map((organization) => (
             <option value={organization.id} key={organization.id}>{organization.name}</option>
           ))}
         </select>
+        {organizationId && (
+          <div className="selected-organization">
+            <strong>{organizations.find((organization) => organization.id === organizationId)?.name}</strong>
+            <span className="muted">Organization ID: {organizationId}</span>
+            <button type="button" className="secondary" onClick={() => void copyText(organizationId)}>Copy ID</button>
+          </div>
+        )}
         <button className="secondary" onClick={() => void loadLinks()}>Load links</button>
         <input placeholder="Search links" value={search} onChange={(event) => setSearch(event.target.value)} />
         <label className="checkbox"><input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} /> Show archived</label>
@@ -790,13 +1198,13 @@ export default function App() {
         {selectedLinks.length > 0 && <button className="danger" onClick={bulkDelete}>Delete selected ({selectedLinks.length})</button>}
       </section>
       {message && <p className="notice">{message}</p>}
-      {overview && (
+      {organizationId && overview && (
         <section className="stats-grid">
           <article className="card stat"><span className="muted">Clicks (30 days)</span><strong>{overview.total_clicks}</strong></article>
           <article className="card stat"><span className="muted">Unique visitors</span><strong>{overview.unique_clicks}</strong></article>
         </section>
       )}
-      {(timeSeries.length > 0 || breakdown.length > 0) && <section className="analytics-grid">
+      {organizationId && (timeSeries.length > 0 || breakdown.length > 0) && <section className="analytics-grid">
         <article className="card">
           <div className="section-heading"><h2>Daily clicks</h2><span>Last 30 days</span></div>
           <div className="bar-list">{timeSeries.map((row) => <div className="bar-row" key={row.bucket}><span>{row.bucket}</span><div className="bar-track"><div className="bar-fill" style={{ width: `${Math.min(100, (row.count / Math.max(...timeSeries.map((item) => item.count), 1)) * 100)}%` }} /></div><strong>{row.count}</strong></div>)}</div>
@@ -814,7 +1222,8 @@ export default function App() {
               <article className="link-row" key={link.id}>
                 <div className="link-summary"><input type="checkbox" checked={selectedLinks.includes(link.id)} onChange={(event) => setSelectedLinks((current) => event.target.checked ? [...current, link.id] : current.filter((id) => id !== link.id))} /><div><strong>{link.title || link.short_code}</strong><p>{link.original_url}</p></div></div>
                 <div className="link-actions">
-                  <a href={`${apiBase}/urls/r/${link.short_code}`} target="_blank" rel="noreferrer">Open</a>
+                  <button className="text-link" onClick={() => void openLink(link)}>Open</button>
+                  <button className="secondary" onClick={() => void copyLinkUrl(link)}>Copy link</button>
                   <button className="secondary" onClick={() => void editLink(link)}>Edit</button>
                   <button className="secondary" onClick={() => void downloadQr(link)}>QR</button>
                   <button className="secondary" onClick={() => duplicateLink(link)}>Duplicate</button>
@@ -832,23 +1241,34 @@ export default function App() {
           <input type="email" placeholder="teammate@example.com" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} required />
           <button type="submit">Create invite</button>
         </form>
-        {inviteToken && <p className="api-key-output">Invite token: {inviteToken}</p>}
+        {inviteToken && (
+          <div className="secret-output">
+            <p className="api-key-output">Invite token: {inviteToken}</p>
+            <button type="button" className="secondary" onClick={() => setInviteToken("")}>Hide token</button>
+          </div>
+        )}
         <form className="create-form" onSubmit={acceptInvite}>
           <input placeholder="Paste an invitation token" value={acceptInviteToken} onChange={(event) => setAcceptInviteToken(event.target.value)} required />
           <button className="secondary" type="submit">Accept invite</button>
         </form>
         <div className="admin-list">
-          {members.map((member) => (
+          {members.map((member) => {
+            const currentMember = members.find((item) => item.user_id === profile?.id);
+            const canManageRoles = currentMember?.role === "owner";
+            const canRemove = currentMember?.role === "owner"
+              || (currentMember?.role === "admin" && member.role === "member");
+            return (
             <div className="admin-row" key={member.user_id}>
-              <span>{member.full_name || member.email}</span>
-              <select value={member.role} disabled={member.role === "owner"} onChange={(event) => void updateMemberRole(member, event.target.value)}>
+              <span>{member.full_name || member.email}<small className="role-label">Role: {member.role}</small></span>
+              {canManageRoles && member.role !== "owner" ?               <select value={member.role} onChange={(event) => void updateMemberRole(member, event.target.value)}>
                 <option value="member">Member</option>
                 <option value="admin">Admin</option>
-                <option value="owner">Owner</option>
-              </select>
-              {member.role !== "owner" && <button className="secondary" onClick={() => void transferOwnership(member)}>Transfer ownership</button>}
+              </select> : <span className="role-label">Managed by owner</span>}
+              {canManageRoles && member.role !== "owner" && <button type="button" className="secondary" onClick={() => void transferOwnership(member)}>Transfer ownership</button>}
+              {canRemove && member.role !== "owner" && <button type="button" className="danger" onClick={() => void removeMember(member)}>Remove</button>}
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
       <section className="settings-grid">
@@ -874,17 +1294,27 @@ export default function App() {
           </form>
         </article>
         <article className="card">
-          <div className="section-heading"><h2>API keys</h2><span>{apiKeys.length} active/issued</span></div>
+          <div className="section-heading">
+            <h2>API keys</h2>
+            <span>{apiKeys.filter((key) => key.is_active).length} active / {apiKeys.length} total</span>
+          </div>
+          <p className="muted">Use a key for scripts or integrations. Send it as <code>X-API-Key</code> to <code>/api/v1/urls/api/organizations/&lt;organization-id&gt;</code>.</p>
           <form className="settings-form" onSubmit={createApiKey}>
             <input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} placeholder="Key name" required />
             <button type="submit">Generate key</button>
           </form>
-          {newApiKey && <p className="api-key-output">{newApiKey}</p>}
+          {newApiKey && (
+            <div className="secret-output">
+              <p className="api-key-output">{newApiKey}</p>
+              <button type="button" className="secondary" onClick={() => void navigator.clipboard.writeText(newApiKey)}>Copy</button>
+              <button type="button" className="secondary" onClick={() => setNewApiKey("")}>Hide</button>
+            </div>
+          )}
           <div className="key-list">
             {apiKeys.map((key) => (
               <div className="key-row" key={key.id}>
-                <span>{key.name} ({key.key_prefix}...) - {key.usage_count} uses</span>
-                {key.is_active && <button className="secondary" onClick={() => revokeApiKey(key.id)}>Revoke</button>}
+                <span>{key.name} ({key.key_prefix}...) - {key.usage_count} uses {!key.is_active && <small className="role-label">Revoked</small>}</span>
+                {key.is_active && <span className="key-actions"><button className="secondary" onClick={() => void rotateApiKey(key.id)}>Rotate</button><button className="secondary" onClick={() => void revokeApiKey(key.id)}>Revoke</button></span>}
               </div>
             ))}
           </div>

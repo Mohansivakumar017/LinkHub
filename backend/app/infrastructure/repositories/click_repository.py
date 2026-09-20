@@ -67,7 +67,7 @@ class ClickRepository:
 
     async def get_time_series(self, organization_id: UUID, days: int = 30, granularity: str = "daily") -> list[dict]:
         since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
-        fmt = "%Y-%m-%d" if granularity == "daily" else "%Y-%W"
+        fmt = "YYYY-MM-DD" if granularity == "daily" else "IYYY-IW"
         bucket = func.to_char(Click.created_at, fmt)
         query = (
             select(bucket.label("bucket"), func.count(Click.id).label("count"))

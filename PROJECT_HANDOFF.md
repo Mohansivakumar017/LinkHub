@@ -128,6 +128,27 @@ Docker notes:
 - Frontend production build passes locally.
 - Docker runtime validation requires a host with Docker installed.
 - Private links require an authenticated member of the owning organization.
+- Dashboard "Copy link" shares a frontend URL (`/?link=<short_code>`), not the raw
+  API redirect URL. Open that URL in the LinkHub web app so the current session
+  can authorize private links and the app can request a password when required.
+- Raw `/api/v1/urls/r/<short_code>` requests from an address bar do not include
+  the browser's bearer token and therefore cannot authorize private links.
+- A shared URL is handled by a dedicated access screen before the authenticated
+  workspace is rendered. It can resolve public links while logged out, accepts
+  a link password before navigation, and allows a user to sign in on the same
+  URL before retrying organization-members-only access.
+
+## Product status
+
+The backend foundation and core link-management APIs are implemented and tested,
+but the frontend is not yet a complete production SaaS console. The current
+frontend still uses a single React application shell with sections for links,
+organizations, profile, API keys, analytics, and admin data rather than
+separate route-level pages. The next frontend milestone is to split these into
+route-aware workspace, organization, link, analytics, settings, API-key, and
+admin views while preserving the existing API behavior and authorization rules.
+Do not describe the application as 90% complete until those views, loading/error
+states, pagination, and end-to-end acceptance tests are finished.
 - Analytics click queries use composite organization/time and URL/time indexes.
 - API-key usage counters use database-side atomic increments.
 - Login and refresh-token rotation require active, verified accounts.

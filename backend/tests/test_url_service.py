@@ -115,6 +115,28 @@ async def test_url_lifecycle_and_bulk() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_url_normalizes_timezone_aware_expiration() -> None:
+    session = FakeSession()
+    repo = FakeURLRepo()
+    service = URLService(
+        session=session,
+        url_repo=repo,
+        membership_repo=FakeMemberRepo(True),
+        cache=FakeCache(),
+    )
+    expiration = datetime(2030, 1, 2, 3, 4, tzinfo=UTC)
+
+    created = await service.create_url(
+        organization_id=uuid4(),
+        owner_user_id=uuid4(),
+        original_url="https://example.com",
+        expires_at=expiration,
+    )
+
+    assert created.expires_at == expiration.replace(tzinfo=None)
+
+
+@pytest.mark.asyncio
 async def test_not_found_raises() -> None:
     session = FakeSession()
     repo = FakeURLRepo()
