@@ -39,10 +39,59 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ### Docker Compose
 
+Run the complete stack in the background:
+
 ```bash
 cd /home/mohan-siva-kumar/LinkHub
 sudo docker compose up -d --build
 ```
+
+Start already-created containers without rebuilding:
+
+```bash
+sudo docker compose start
+```
+
+Stop all services while preserving containers, volumes, and database data:
+
+```bash
+sudo docker compose stop
+```
+
+Check service status:
+
+```bash
+sudo docker compose ps
+```
+
+View recent API and worker logs:
+
+```bash
+sudo docker compose logs --tail=200 api worker
+```
+
+Rebuild and restart one service after changing its source:
+
+```bash
+sudo docker compose build frontend
+sudo docker compose up -d --no-deps frontend
+```
+
+Rebuild and restart the complete stack after broader changes:
+
+```bash
+sudo docker compose up -d --build
+```
+
+Remove containers and networks but preserve named volumes:
+
+```bash
+sudo docker compose down
+```
+
+> Do not use `sudo docker compose down -v` during normal cleanup. The `-v`
+> option deletes named volumes and can erase local PostgreSQL data, including
+> users, organizations, links, and analytics.
 
 Local URLs:
 
@@ -57,6 +106,8 @@ Local URLs:
 Docker notes:
 
 - If Docker permission is denied, run `newgrp docker`, log out/in, or use `sudo docker compose`.
+- `docker compose up -d` runs services in the background; use `docker compose stop` when you are finished testing.
+- Services use `restart: unless-stopped`, so they may restart automatically until explicitly stopped or brought down.
 - The Compose stack uses Mailpit for local verification and reset emails; it does not send real external email.
 - After source changes affecting containers, use `sudo docker compose build --no-cache <service>` followed by `sudo docker compose up -d`.
 - Do not use `docker compose down -v` unless deleting local PostgreSQL data is intentional.

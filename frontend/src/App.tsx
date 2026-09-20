@@ -750,14 +750,33 @@ export default function App() {
           <button type="submit">Create organization</button>
         </form>
         <form className="create-form" onSubmit={createLink}>
-          <input type="url" placeholder="https://example.com" value={target} onChange={(event) => setTarget(event.target.value)} required />
-          <input placeholder="Title (optional)" value={linkTitle} onChange={(event) => setLinkTitle(event.target.value)} />
-          <input placeholder="Custom alias (optional)" value={linkAlias} onChange={(event) => setLinkAlias(event.target.value)} />
-          <input type="datetime-local" value={linkExpiresAt} onChange={(event) => setLinkExpiresAt(event.target.value)} />
-          <input type="password" minLength={8} placeholder="Password (optional)" value={linkPassword} onChange={(event) => setLinkPassword(event.target.value)} />
-          <input type="number" min={1} placeholder="Click limit (optional)" value={linkClickLimit} onChange={(event) => setLinkClickLimit(event.target.value)} />
-          <label className="checkbox"><input type="checkbox" checked={linkOneTime} onChange={(event) => setLinkOneTime(event.target.checked)} /> One-time</label>
-          <label className="checkbox"><input type="checkbox" checked={linkPrivate} onChange={(event) => setLinkPrivate(event.target.checked)} /> Private</label>
+          <div className="form-heading">
+            <div>
+              <h2>Create a link</h2>
+              <p className="muted">Turn a long URL into a trackable, shareable link.</p>
+            </div>
+          </div>
+          <label>Destination URL
+            <input type="url" placeholder="https://example.com" value={target} onChange={(event) => setTarget(event.target.value)} required />
+          </label>
+          <label>Title
+            <input placeholder="Optional name for this link" value={linkTitle} onChange={(event) => setLinkTitle(event.target.value)} />
+          </label>
+          <label>Custom alias
+            <input placeholder="Optional alias, for example summer-sale" value={linkAlias} onChange={(event) => setLinkAlias(event.target.value)} />
+          </label>
+          <label>Expiration
+            <input type="datetime-local" aria-label="Expiration date and time (optional)" value={linkExpiresAt} onChange={(event) => setLinkExpiresAt(event.target.value)} />
+            <small className="field-help">Optional date and time when the link stops working.</small>
+          </label>
+          <label>Password protection
+            <input type="password" minLength={8} placeholder="Optional password (8+ characters)" value={linkPassword} onChange={(event) => setLinkPassword(event.target.value)} />
+          </label>
+          <label>Click limit
+            <input type="number" min={1} placeholder="Optional maximum clicks" value={linkClickLimit} onChange={(event) => setLinkClickLimit(event.target.value)} />
+          </label>
+          <label className="checkbox"><input type="checkbox" checked={linkOneTime} onChange={(event) => setLinkOneTime(event.target.checked)} /> Open only once</label>
+          <label className="checkbox"><input type="checkbox" checked={linkPrivate} onChange={(event) => setLinkPrivate(event.target.checked)} /> Organization members only</label>
           <button type="submit">Create link</button>
         </form>
         <form className="create-form" onSubmit={importLinks}>
@@ -864,7 +883,7 @@ export default function App() {
           <div className="key-list">
             {apiKeys.map((key) => (
               <div className="key-row" key={key.id}>
-                <span>{key.name} ({key.key_prefix}...) · {key.usage_count} uses</span>
+                <span>{key.name} ({key.key_prefix}...) - {key.usage_count} uses</span>
                 {key.is_active && <button className="secondary" onClick={() => revokeApiKey(key.id)}>Revoke</button>}
               </div>
             ))}
