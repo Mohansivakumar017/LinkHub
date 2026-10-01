@@ -19,6 +19,14 @@ def test_notification_tasks_are_scheduled() -> None:
     assert schedule["send-weekly-reports"]["task"] == "workers.send_weekly_reports"
 
 
+def test_external_worker_tasks_have_bounded_retries() -> None:
+    assert tasks.send_email.retry_kwargs["max_retries"] == 5
+    assert tasks.send_email.soft_time_limit == 60
+    assert tasks.send_email.time_limit == 90
+    assert tasks.build_analytics_report.retry_kwargs["max_retries"] == 3
+    assert tasks.build_analytics_report.soft_time_limit == 120
+
+
 def test_send_email_task_uses_email_sender(monkeypatch) -> None:
     dispatched = []
 

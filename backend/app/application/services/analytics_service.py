@@ -106,10 +106,11 @@ class AnalyticsService:
             if membership is None:
                 raise URLAccessDeniedError("private link access denied")
         password_hash = getattr(url, "password_hash", None)
-        if password_hash and (
-            password is None or not verify_password(password, password_hash)
-        ):
-            raise URLAccessDeniedError("link password required")
+        if password_hash:
+            if password is None:
+                raise URLAccessDeniedError("link password required")
+            if not verify_password(password, password_hash):
+                raise URLAccessDeniedError("invalid link password")
 
         click_count = await self._clicks.count_for_url(url.id)
         if url.is_archived:

@@ -1,8 +1,10 @@
 import asyncio
+import smtplib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from redis.exceptions import RedisError
 from sqlalchemy import select
 
 from app.core.config import get_settings
@@ -29,7 +31,16 @@ def _run(coroutine: Any) -> Any:
     return asyncio.run(coroutine)
 
 
-@celery_app.task(name="workers.send_email", ignore_result=True)
+@celery_app.task(
+    name="workers.send_email",
+    ignore_result=True,
+    autoretry_for=(OSError, RedisError, smtplib.SMTPException, TimeoutError),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 5},
+    soft_time_limit=60,
+    time_limit=90,
+)
 def send_email(to_email: str, subject: str, body: str) -> None:
     """Deliver an email through the configured infrastructure sender."""
     _run(SMTPEmailSender().send(EmailMessage(to_email, subject, body)))
@@ -75,7 +86,15 @@ async def _build_analytics_report(
         }
 
 
-@celery_app.task(name="workers.build_analytics_report")
+@celery_app.task(
+    name="workers.build_analytics_report",
+    autoretry_for=(OSError, RedisError, TimeoutError),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 3},
+    soft_time_limit=120,
+    time_limit=150,
+)
 def build_analytics_report(
     organization_id: str, days: int = 30, limit: int = 10
 ) -> dict[str, Any]:

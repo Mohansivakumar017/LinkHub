@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.application.services.api_key_service import ApiKeyService
+from app.application.services.api_key_service import ApiKeyNotFoundError, ApiKeyService
 
 
 class FakeSession:
@@ -64,6 +64,20 @@ async def test_api_key_rotation_revokes_old_key_and_returns_replacement() -> Non
 
     assert rotated.key.startswith("lhk_")
     assert rotated.key != original.key
+    assert repository.items[0].is_active is False
+
+
+@pytest.mark.asyncio
+async def test_revoked_api_key_cannot_be_rotated() -> None:
+    session = FakeSession()
+    repository = FakeRepository()
+    service = ApiKeyService(session, repository)
+    user_id = uuid4()
+    original = await service.create(user_id, "automation")
+    await service.revoke(user_id, original.id)
+
+    with pytest.raises(ApiKeyNotFoundError, match="active API key not found"):
+        await service.rotate(user_id, original.id)
 
 
 @pytest.mark.asyncio

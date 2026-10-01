@@ -74,8 +74,16 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET_KEY must be replaced in production")
         if self.postgres_dsn.startswith("postgresql+asyncpg://linkhub:linkhub@"):
             raise ValueError("POSTGRES_DSN must be explicitly configured in production")
+        if self.redis_dsn.startswith("redis://redis:") or self.redis_dsn.startswith(
+            "redis://localhost"
+        ):
+            raise ValueError("REDIS_DSN must be explicitly configured in production")
         if not self.public_base_url.startswith("https://"):
             raise ValueError("PUBLIC_BASE_URL must use HTTPS in production")
+        if not self.smtp_host or not self.smtp_username or not self.smtp_password:
+            raise ValueError("SMTP_HOST, SMTP_USERNAME, and SMTP_PASSWORD are required in production")
+        if not self.smtp_use_tls:
+            raise ValueError("SMTP_USE_TLS must be enabled in production")
         if "*" in self.cors_origins:
             raise ValueError("CORS_ORIGINS cannot contain '*' in production")
         if any("localhost" in origin or "127.0.0.1" in origin for origin in self.cors_origins):

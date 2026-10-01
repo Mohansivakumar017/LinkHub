@@ -166,6 +166,14 @@ class OrganizationService:
                 )
         return users
 
+    async def ensure_member_access(
+        self, requester_user_id: UUID, organization_id: UUID
+    ) -> None:
+        if await self._orgs.get_by_id(organization_id) is None:
+            raise OrganizationNotFoundError("organization not found")
+        if await self._members.get_membership(organization_id, requester_user_id) is None:
+            raise PermissionDeniedError("organization access denied")
+
     async def update_member_role(
         self,
         requester_user_id: UUID,

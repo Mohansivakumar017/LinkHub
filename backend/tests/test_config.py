@@ -19,6 +19,10 @@ def test_production_accepts_explicit_security_configuration() -> None:
         postgres_dsn="postgresql+asyncpg://app:secret@db:5432/linkhub",
         cors_origins=["https://app.example.com"],
         public_base_url="https://app.example.com",
+        redis_dsn="rediss://:redis-secret@cache.example.com:6380/0",
+        smtp_host="smtp.example.com",
+        smtp_username="mailer",
+        smtp_password="smtp-secret",
     )
 
     assert settings.environment == "production"
@@ -32,6 +36,10 @@ def test_production_rejects_wildcard_cors() -> None:
             postgres_dsn="postgresql+asyncpg://app:secret@db:5432/linkhub",
             cors_origins=["*"],
             public_base_url="https://app.example.com",
+            redis_dsn="rediss://:redis-secret@cache.example.com:6380/0",
+            smtp_host="smtp.example.com",
+            smtp_username="mailer",
+            smtp_password="smtp-secret",
         )
 
 
@@ -43,4 +51,8 @@ def test_production_rejects_localhost_cors() -> None:
             postgres_dsn="postgresql+asyncpg://app:secret@db:5432/linkhub",
             cors_origins=["http://localhost:8080"],
             public_base_url="https://app.example.com",
+            redis_dsn="rediss://:redis-secret@cache.example.com:6380/0",
+            smtp_host="smtp.example.com",
+            smtp_username="mailer",
+            smtp_password="smtp-secret",
         )

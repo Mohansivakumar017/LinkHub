@@ -16,6 +16,7 @@ from app.core.dependencies import get_current_user
 from app.infrastructure.db.models.organization import OrganizationRole
 from app.infrastructure.db.models.user import User
 from app.infrastructure.db.session import get_db_session
+from app.infrastructure.repositories.audit_repository import AuditRepository
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -107,6 +108,56 @@ async def list_members(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except PermissionDeniedError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.get("/{organization_id}/audit-logs")
+async def list_organization_audit_logs(
+    organization_id: UUID,
+    offset: int = 0,
+    limit: int = 50,
+    action: str | None = None,
+    resource_type: str | None = None,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    if offset < 0 or limit < 1 or limit > 100:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="offset must be non-negative and limit must be between 1 and 100",
+        )
+
+    service = OrganizationService(session)
+    try:
+        await service.ensure_member_access(current_user.id, organization_id)
+    except OrganizationNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+    logs, total = await AuditRepository(session).list_for_organization(
+        organization_id,
+        offset,
+        limit,
+        action=action,
+        resource_type=resource_type,
+    )
+    return {
+        "items": [
+            {
+                "id": str(log.id),
+                "actor_user_id": str(log.actor_user_id) if log.actor_user_id else None,
+                "action": log.action,
+                "resource_type": log.resource_type,
+                "resource_id": log.resource_id,
+                "details": log.details,
+                "created_at": log.created_at.isoformat(),
+            }
+            for log in logs
+        ],
+        "offset": offset,
+        "limit": limit,
+        "total": total,
+    }
 
 
 @router.patch("/{organization_id}/members/{member_user_id}")

@@ -25,6 +25,19 @@ class FakeOrganizationService:
     async def transfer_ownership(self, requester_user_id, organization_id, new_owner_user_id):
         return None
 
+    async def ensure_member_access(self, requester_user_id, organization_id):
+        return None
+
+
+class FakeAuditRepository:
+    def __init__(self, session) -> None:
+        self._session = session
+
+    async def list_for_organization(
+        self, organization_id, offset, limit, action=None, resource_type=None
+    ):
+        return [], 0
+
 
 async def fake_db_session():
     yield None
@@ -36,6 +49,7 @@ async def fake_current_user():
 
 def test_organization_endpoints_contract(monkeypatch) -> None:
     monkeypatch.setattr(organizations_router_module, "OrganizationService", FakeOrganizationService)
+    monkeypatch.setattr(organizations_router_module, "AuditRepository", FakeAuditRepository)
     app.dependency_overrides[organizations_router_module.get_db_session] = fake_db_session
     app.dependency_overrides[organizations_router_module.get_current_user] = fake_current_user
 
@@ -64,5 +78,12 @@ def test_organization_endpoints_contract(monkeypatch) -> None:
         json={"new_owner_user_id": str(uuid4())},
     )
     assert transfer_res.status_code == 204
+
+    audit_res = client.get(
+        f"/api/v1/organizations/{organization_id}/audit-logs",
+        params={"action": "organization.created", "resource_type": "organization"},
+    )
+    assert audit_res.status_code == 200
+    assert audit_res.json() == {"items": [], "offset": 0, "limit": 50, "total": 0}
 
     app.dependency_overrides.clear()

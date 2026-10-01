@@ -133,6 +133,11 @@ h1 { margin-bottom: 8px; }
 .admin-toolbar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
 .audit-filters { display: flex; align-items: end; gap: 8px; width: min(100%, 720px); }
 .audit-filters input, .audit-filters select { min-height: 42px; }
+.filter-row { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.filter-row label { display: grid; gap: 6px; min-width: 190px; color: #4d5b73; font-size: 12px; font-weight: 700; }
+.audit-list { display: grid; gap: 8px; }
+.audit-list .admin-row { margin: 0; }
+.audit-list small { display: block; margin-top: 3px; color: #7a869a; font-size: 12px; }
 .admin-panel .section-heading { align-items: flex-start; }
 .admin-list { display: grid; gap: 8px; margin-top: 12px; }
 .admin-row { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid #edf0f5; padding-top: 10px; }

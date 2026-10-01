@@ -7,6 +7,9 @@ export function describeSharedLinkFailure(status: number, detail: string): Share
   if (status === 401 && detail === "link password required") {
     return { kind: "password", message: "This link is password protected. Enter the password to continue." };
   }
+  if (status === 401 && detail === "invalid link password") {
+    return { kind: "password", message: "That password is incorrect. Try again." };
+  }
   if (status === 401 && detail === "private link requires authentication") {
     return { kind: "authentication", message: "Sign in to continue. This link is restricted to organization members." };
   }

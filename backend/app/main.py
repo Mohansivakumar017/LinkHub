@@ -22,9 +22,11 @@ app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
     debug=settings.debug,
-    openapi_url=f"{settings.api_v1_prefix}/openapi.json",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    openapi_url=f"{settings.api_v1_prefix}/openapi.json"
+    if settings.environment != "production"
+    else None,
+    docs_url="/docs" if settings.environment != "production" else None,
+    redoc_url="/redoc" if settings.environment != "production" else None,
 )
 app.state.settings = settings
 app.mount(settings.media_base_url, StaticFiles(directory=settings.media_dir, check_dir=False), name="media")

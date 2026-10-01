@@ -103,6 +103,20 @@ Local URLs:
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3000`
 
+Production deployment uses the hardened overlay and requires a real secrets
+file copied from `backend/.env.production.example`:
+
+```bash
+cp backend/.env.production.example backend/.env.production
+# replace every REPLACE_WITH_* value
+docker compose --env-file backend/.env.production \
+  -f docker-compose.yml -f docker-compose.production.yml up -d --build
+```
+
+The production overlay removes public infrastructure ports, requires
+authenticated PostgreSQL/Redis/Grafana credentials, and disables API
+documentation through `ENVIRONMENT=production`.
+
 Docker notes:
 
 - If Docker permission is denied, run `newgrp docker`, log out/in, or use `sudo docker compose`.
@@ -209,9 +223,14 @@ The backend foundation and primary product flows are implemented. Priority 3
 production hardening is in progress. Completed in this track: links
 pagination/load-more and list states; organization/member loading and empty
 states; analytics loading, empty, and error states; and admin pagination/load
-more controls. Remaining goals: browser end-to-end coverage, audit-log UX
-filters, migration tests, worker retry tests, rate-limit runtime tests,
-complete CI Docker validation, and final security/configuration review.
+more controls; organization-scoped audit activity with member authorization
+and filters; bounded retry/time-limit policies for email and analytics worker
+tasks; QR codes now open through the authenticated frontend shared-link flow;
+CI now includes a complete Compose startup/readiness smoke job; production
+configuration rejects development DSNs/secrets, production API docs are
+disabled, and `docker-compose.production.yml` removes public infrastructure
+service ports. Remaining goals: browser end-to-end coverage, migration
+runtime execution, rate-limit runtime tests, and final deployment validation.
 Recent runtime fixes include recursive Celery email delivery and
 organization-role enum serialization; both are fixed and validated with
 backend tests and Ruff. CI now runs the frontend Vitest suite before the
@@ -229,9 +248,8 @@ When resuming this work, follow this order:
 2. Add Playwright browser acceptance tests for auth, organization invites,
    private/password links, API-key lifecycle, role permissions, and member
    removal.
-3. Add organization-scoped audit-log visibility and verify audit filters
-   against the running API.
-4. Add Alembic migration upgrade tests and Celery retry/failure tests.
+3. Verify organization audit activity and filters against the running API.
+4. Add Alembic migration upgrade tests and validate Celery failure handling.
 5. Validate Redis rate limiting and API-key revocation against the running
    Compose stack.
 6. Verify the updated CI workflow on GitHub; it now includes frontend tests

@@ -291,9 +291,9 @@ async def test_password_protected_link_requires_valid_password() -> None:
     )
     context = ClickContext(ip_address="1.1.1.1", user_agent="ua", referrer=None)
 
-    with pytest.raises(URLAccessDeniedError):
+    with pytest.raises(URLAccessDeniedError, match="link password required"):
         await service.track_click("secret", context)
-    with pytest.raises(URLAccessDeniedError):
+    with pytest.raises(URLAccessDeniedError, match="invalid link password"):
         await service.track_click("secret", context, password="wrong-password")
 
     result = await service.track_click("secret", context, password="correct-password")
