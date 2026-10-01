@@ -269,7 +269,7 @@ async def download_qr_code(
     target = f"{get_settings().public_base_url.rstrip('/')}/?link={item.short_code}"
     image = qrcode.make(target)
     buffer = BytesIO()
-    image.save(buffer, format="PNG")  # type: ignore[call-arg]
+    image.save(buffer, format="PNG")
     return Response(
         content=buffer.getvalue(),
         media_type="image/png",
