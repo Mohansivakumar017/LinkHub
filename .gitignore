@@ -31,3 +31,8 @@ build/
 
 # Application logs
 *.log
+
+# Local agent/project handoff notes
+/PROJECT_HANDOFF.md
+/IMPLEMENTATION_LOG.md
+/NEXT_AGENT_PROMPT.md

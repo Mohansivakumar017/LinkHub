@@ -123,13 +123,16 @@ async def _notify_expiring_urls() -> int:
         )
         rows = result.all()
         for url, user in rows:
+            expires_at = url.expires_at
+            if expires_at is None:
+                continue
             await BackgroundEmailSender().send(
                 EmailMessage(
                     to_email=user.email,
                     subject=f"LinkHub link expires soon: {url.short_code}",
                     body=(
                         f"Your link {url.short_code} expires at "
-                        f"{url.expires_at.isoformat()}. Update it before expiration."
+                        f"{expires_at.isoformat()}. Update it before expiration."
                     ),
                 )
             )

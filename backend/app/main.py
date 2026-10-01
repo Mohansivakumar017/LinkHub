@@ -30,8 +30,8 @@ app = FastAPI(
 )
 app.state.settings = settings
 app.mount(settings.media_base_url, StaticFiles(directory=settings.media_dir, check_dir=False), name="media")
-app.add_exception_handler(HTTPException, http_exception_handler)
-app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
 app.add_middleware(RequestContextMiddleware)
