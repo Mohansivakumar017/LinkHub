@@ -23,6 +23,10 @@ export function LinksPage() {
   const [csv, setCsv] = useState(""), [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState(""), [error, setError] = useState("");
   const [loading, setLoading] = useState(false), [hasMore, setHasMore] = useState(false);
+  const [protectedLink, setProtectedLink] = useState<LinkItem | null>(null);
+  const [linkPassword, setLinkPassword] = useState("");
+  const [linkPasswordError, setLinkPasswordError] = useState("");
+  const [openingLink, setOpeningLink] = useState(false);
   useEffect(() => { void api.request(`${apiBaseUrl}/organizations`).then(async r => r.ok && setOrgs(await r.json())); }, [api]);
   async function load(append = false) {
     if (!org) return;
@@ -83,15 +87,51 @@ export function LinksPage() {
   async function remove(link: LinkItem) { if (!window.confirm(`Delete ${link.short_code}?`)) return; const ok = await action(`/urls/${link.id}?organization_id=${org}`, "DELETE"); setMessage(ok ? "Link deleted" : "Could not delete link"); if (ok) await load(); }
   async function duplicate(link: LinkItem) { const ok = await action(`/urls/${link.id}/duplicate?organization_id=${org}`); setMessage(ok ? "Link duplicated" : "Could not duplicate link"); if (ok) await load(); }
   async function copy(link: LinkItem) { await navigator.clipboard.writeText(new URL(`/?link=${encodeURIComponent(link.short_code)}`, window.location.origin).toString()); setMessage("Copied to clipboard"); }
-  async function openLink(link: LinkItem) {
-    const secret = link.password_protected ? window.prompt("Link password") : null;
-    if (link.password_protected && secret === null) return;
-    const query = secret ? `?password=${encodeURIComponent(secret)}` : "";
+  async function resolveLink(link: LinkItem, secret = "") {
+    setOpeningLink(true);
+    setLinkPasswordError("");
+    const query = secret ? `?${new URLSearchParams({ password: secret }).toString()}` : "";
     const r = await api.request(`${apiBaseUrl}/urls/resolve/${encodeURIComponent(link.short_code)}${query}`);
-    if (!r.ok) { const b = await r.json().catch(() => ({})); setMessage(typeof b.detail === "string" ? b.detail : "Could not open link"); return; }
-    const b = await r.json(); window.open(b.original_url, "_blank", "noopener,noreferrer");
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({})) as { detail?: string; error?: { message?: string } };
+      setLinkPasswordError(body.error?.message ?? body.detail ?? "Could not open link");
+      setOpeningLink(false);
+      return;
+    }
+    const body = await r.json() as { original_url: string };
+    setProtectedLink(null);
+    setLinkPassword("");
+    setOpeningLink(false);
+    window.open(body.original_url, "_blank", "noopener,noreferrer");
+  }
+  function openLink(link: LinkItem) {
+    if (link.password_protected) {
+      setMessage("");
+      setLinkPassword("");
+      setLinkPasswordError("");
+      setProtectedLink(link);
+      return;
+    }
+    void resolveLink(link);
   }
   return <WorkspaceLayout title="Link workspace" description="Create, organize, and share trackable links." message={message}>
+    {protectedLink && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !openingLink) setProtectedLink(null); }}>
+      <section className="card access-dialog" role="dialog" aria-modal="true" aria-labelledby="dashboard-password-title">
+        <p className="eyebrow">PROTECTED LINK</p>
+        <h2 id="dashboard-password-title">Enter link password</h2>
+        <p className="muted">This link requires its password before the destination can be opened.</p>
+        <form onSubmit={event => { event.preventDefault(); void resolveLink(protectedLink, linkPassword); }}>
+          <label htmlFor="dashboard-link-password">Link password</label>
+          <input id="dashboard-link-password" type="password" value={linkPassword} onChange={event => { setLinkPassword(event.target.value); setLinkPasswordError(""); }} autoFocus required aria-describedby="dashboard-password-help" />
+          {linkPasswordError && <p className="auth-error" role="alert">{linkPasswordError}</p>}
+          <p id="dashboard-password-help" className="field-help">The password is sent securely and is never stored in the browser.</p>
+          <div className="dialog-actions">
+            <button type="button" className="secondary" onClick={() => setProtectedLink(null)} disabled={openingLink}>Cancel</button>
+            <button type="submit" disabled={openingLink}>{openingLink ? "Checking password…" : "Open link"}</button>
+          </div>
+        </form>
+      </section>
+    </div>}
     <section className="toolbar card"><div className="organization-picker"><label>Organization<select value={org} onChange={e => { setOrg(e.target.value); setLinks([]); setHasMore(false); setError(""); }}><option value="">Select an organization</option>{orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>{selectedOrg && <div className="organization-context"><strong>{selectedOrg.name}</strong><span>Organization ID</span><code>{selectedOrg.id}</code></div>}</div><div className="link-toolbar-actions"><button className="secondary" onClick={() => void load()} disabled={!org || loading}>{loading ? "Loading…" : "Load links"}</button><label className="checkbox"><input type="checkbox" checked={archived} onChange={e => { setArchived(e.target.checked); setLinks([]); }} /> Show archived</label></div><label className="search-field">Search links<input placeholder="Search by title, alias, or URL" value={search} onChange={e => setSearch(e.target.value)} /></label></section>
     {error && <p className="auth-error" role="alert">{error}</p>}
     {!org && <section className="card empty-state"><h2>Select an organization</h2><p className="muted">Choose an organization above to view and manage its links.</p></section>}

@@ -160,6 +160,34 @@ test("authenticated user can verify, create an organization, and rotate an API k
     original_url: "https://example.com/acceptance-protected",
   });
 
+  await page.goto("/auth");
+  await page.evaluate(({ accessToken, refreshToken, selectedOrganization }) => {
+    localStorage.setItem("linkhub_access_token", accessToken);
+    localStorage.setItem("linkhub_refresh_token", refreshToken);
+    localStorage.setItem("linkhub_organization_id", selectedOrganization);
+  }, {
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    selectedOrganization: organizationId,
+  });
+  await page.goto("/workspace/links");
+  await page.locator(".organization-picker select").selectOption(organizationId);
+  await page.getByRole("button", { name: "Load links" }).click();
+  const protectedLinkRow = page.locator(".link-row").filter({ hasText: "Acceptance protected link" });
+  await expect(protectedLinkRow).toBeVisible();
+  await protectedLinkRow.getByRole("button", { name: "Open" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByRole("dialog").getByLabel("Link password").fill("WrongPass123!");
+  await page.getByRole("dialog").getByRole("button", { name: "Open link" }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toHaveText("invalid link password");
+  await page.getByRole("dialog").getByLabel("Link password").fill("LinkPass123!");
+  const destinationPagePromise = page.waitForEvent("popup");
+  await page.getByRole("dialog").getByRole("button", { name: "Open link" }).click();
+  const destinationPage = await destinationPagePromise;
+  await expect(destinationPage).toHaveURL("https://example.com/acceptance-protected");
+  await expect(page.getByRole("heading", { name: "Link workspace", level: 1 })).toBeVisible();
+  await destinationPage.close();
+
   const createdKey = await request.post("/api/v1/api-keys", {
     headers,
     data: { name: "Browser acceptance key" },
@@ -197,11 +225,15 @@ test("authenticated user can verify, create an organization, and rotate an API k
   });
   expect(revokedRefresh.status()).toBe(401);
 
-  await page.addInitScript(({ accessToken, refreshToken }) => {
+  await page.goto("/auth");
+  await page.evaluate(({ accessToken, refreshToken }) => {
+    localStorage.removeItem("linkhub_organization_id");
     localStorage.setItem("linkhub_access_token", accessToken);
     localStorage.setItem("linkhub_refresh_token", refreshToken);
-  }, { accessToken: tokens.access_token, refreshToken: tokens.refresh_token });
+  }, { accessToken: refreshedTokens.access_token, refreshToken: refreshedTokens.refresh_token });
   await page.goto("/organizations");
   await expect(page.getByRole("heading", { name: "Organizations & members", level: 1 })).toBeVisible();
-  await expect(page.locator(`option[value="${organizationId}"]`)).toBeAttached({ timeout: 5000 });
+  await expect(page.locator(".workspace-header-context")).toHaveText("All organizations");
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expect(page.locator(`option[value="${organizationId}"]`).first()).toBeAttached({ timeout: 5000 });
 });
