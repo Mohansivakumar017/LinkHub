@@ -60,12 +60,13 @@ jobs:
         working-directory: frontend
         run: npm ci
       - name: Start the complete Compose stack
-        run: docker compose up -d --build db redis migrate api worker beat frontend
+        run: docker compose up -d --build db redis migrate api worker beat frontend mailpit
       - name: Wait for API and frontend readiness
         run: |
           for attempt in {1..30}; do
             if curl --fail --silent http://localhost:8000/api/v1/ready >/dev/null \
-              && curl --fail --silent http://localhost:8080/ >/dev/null; then
+              && curl --fail --silent http://localhost:8080/ >/dev/null \
+              && curl --fail --silent http://localhost:8025/api/v1/messages >/dev/null; then
               exit 0
             fi
             sleep 5
@@ -102,6 +103,7 @@ jobs:
         run: npm run test:e2e
         env:
           E2E_BASE_URL: http://localhost:8080
+          E2E_MAILPIT_URL: http://localhost:8025
       - name: Collect Compose diagnostics
         if: always()
         run: |

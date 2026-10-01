@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+const mailpitBaseUrl = process.env.E2E_MAILPIT_URL ?? "http://localhost:8025";
+
 test("frontend and proxied API are reachable", async ({ page, request }) => {
   await page.goto("/");
   await expect(page).toHaveTitle(/LinkHub/i);
@@ -47,11 +49,11 @@ test("authenticated user can verify, create an organization, and rotate an API k
   const verificationToken = await test.step("read verification token from Mailpit", async () => {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
-      const response = await request.get("http://localhost:8025/api/v1/messages?limit=20");
+      const response = await request.get(`${mailpitBaseUrl}/api/v1/messages?limit=20`);
       const body = await response.json() as { messages: Array<{ ID: string; To: Array<{ Address: string }> }> };
       const message = body.messages.find((item) => item.To.some((recipient) => recipient.Address === email));
       if (message) {
-        const detail = await request.get(`http://localhost:8025/api/v1/message/${message.ID}`);
+        const detail = await request.get(`${mailpitBaseUrl}/api/v1/message/${message.ID}`);
         const detailBody = await detail.json() as { Text?: string };
         const token = detailBody.Text?.match(
           /verify your email: ([A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+)/
@@ -97,11 +99,11 @@ test("authenticated user can verify, create an organization, and rotate an API k
   const invitedVerificationToken = await test.step("read invited user verification token", async () => {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
-      const response = await request.get("http://localhost:8025/api/v1/messages?limit=30");
+      const response = await request.get(`${mailpitBaseUrl}/api/v1/messages?limit=30`);
       const body = await response.json() as { messages: Array<{ ID: string; To: Array<{ Address: string }> }> };
       const message = body.messages.find((item) => item.To.some((recipient) => recipient.Address === invitedEmail));
       if (message) {
-        const detail = await request.get(`http://localhost:8025/api/v1/message/${message.ID}`);
+        const detail = await request.get(`${mailpitBaseUrl}/api/v1/message/${message.ID}`);
         const detailBody = await detail.json() as { Text?: string };
         const token = detailBody.Text?.match(
           /verify your email: ([A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+)/
