@@ -17,6 +17,7 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+frontend/test-results/
 
 # Local environment files and secrets
 .env

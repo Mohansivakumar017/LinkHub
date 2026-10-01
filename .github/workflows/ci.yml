@@ -78,6 +78,22 @@ jobs:
           curl --fail http://localhost:8000/api/v1/health
           curl --fail http://localhost:8000/api/v1/ready
           docker compose ps
+      - name: Verify live Redis rate limiting
+        run: |
+          throttled=0
+          for attempt in $(seq 1 25); do
+            status=$(curl --silent --output /tmp/rate-limit-response \
+              --write-out '%{http_code}' \
+              -X POST http://localhost:8000/api/v1/auth/login \
+              -H 'Content-Type: application/json' \
+              --data '{"email":"ci-rate-limit@example.com","password":"WrongPass123!"}')
+            if [ "$status" = "429" ]; then
+              throttled=1
+              break
+            fi
+          done
+          test "$throttled" = "1"
+          grep -q '"code":"rate_limit_exceeded"' /tmp/rate-limit-response
       - name: Install Playwright browser
         working-directory: frontend
         run: npx playwright install --with-deps chromium
