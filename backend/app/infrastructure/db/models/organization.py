@@ -2,7 +2,7 @@ import datetime
 import uuid
 from enum import StrEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,10 +17,14 @@ class OrganizationRole(StrEnum):
 
 class Organization(Base):
     __tablename__ = "organizations"
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_organizations_slug"),
+        Index("ix_organizations_slug", "slug", unique=True),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    slug: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False)
     owner_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="RESTRICT"),
@@ -72,6 +76,10 @@ class OrganizationMember(Base):
 
 class OrganizationInvite(Base):
     __tablename__ = "organization_invites"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_organization_invites_token_hash"),
+        Index("ix_organization_invites_token_hash", "token_hash", unique=True),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -94,7 +102,7 @@ class OrganizationInvite(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
     accepted_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(

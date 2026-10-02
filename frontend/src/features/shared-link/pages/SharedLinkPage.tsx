@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { apiBaseUrl } from "../../../shared/api/client";
 import { useSession } from "../../../shared/session/SessionProvider";
@@ -13,6 +13,8 @@ export function SharedLinkPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const initialProbeKey = `${code}:${tokens?.accessToken ?? ""}`;
+  const probedKey = useRef("");
 
   const open = useCallback(
     async (event?: FormEvent, supplied?: string) => {
@@ -28,10 +30,17 @@ export function SharedLinkPage() {
       const headers: HeadersInit = tokens?.accessToken
         ? { Authorization: `Bearer ${tokens.accessToken}` }
         : {};
-      const response = await fetch(
-        `${apiBaseUrl}/urls/resolve/${encodeURIComponent(code)}${query}`,
-        { headers },
-      );
+      let response: Response;
+      try {
+        response = await fetch(
+          `${apiBaseUrl}/urls/resolve/${encodeURIComponent(code)}${query}`,
+          { headers },
+        );
+      } catch {
+        setError("The link service is unavailable right now. Please try again.");
+        setLoading(false);
+        return;
+      }
 
       if (response.ok) {
         const body = (await response.json()) as { original_url: string };
@@ -51,8 +60,10 @@ export function SharedLinkPage() {
   );
 
   useEffect(() => {
-    if (!password) void open(undefined, "");
-  }, [open, password]);
+    if (probedKey.current === initialProbeKey) return;
+    probedKey.current = initialProbeKey;
+    void open(undefined, "");
+  }, [initialProbeKey, open]);
 
   const requiresPassword = error.toLowerCase().includes("password");
   const requiresAuthentication =

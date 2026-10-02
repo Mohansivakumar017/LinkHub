@@ -26,6 +26,7 @@ export function WorkspaceApp() {
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [canResendVerification, setCanResendVerification] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const isLogin = mode === "login";
@@ -35,6 +36,7 @@ export function WorkspaceApp() {
     setMode(nextMode);
     setMessage("");
     setError("");
+    setCanResendVerification(false);
     setShowPassword(false);
   }
 
@@ -99,7 +101,12 @@ export function WorkspaceApp() {
       });
       const body = await response.json();
       if (!response.ok) {
-        setError(response.status === 403 ? "Verify your email before signing in." : responseMessage(body, "We could not sign you in."));
+        if (response.status === 403) {
+          setError("Verify your email before signing in.");
+          setCanResendVerification(true);
+        } else {
+          setError(responseMessage(body, "We could not sign you in."));
+        }
         return;
       }
 
@@ -127,7 +134,8 @@ export function WorkspaceApp() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
     });
-    setMessage(response.ok ? "Verification email sent." : "We could not resend the verification email.");
+    setCanResendVerification(false);
+    setMessage(response.ok ? "Verification email sent. Check your inbox." : responseMessage(await response.json().catch(() => ({})), "We could not resend the verification email."));
   }
 
   const title = isRegister ? "Create your workspace" : isLogin ? "Welcome back" : "Account recovery";
@@ -191,6 +199,7 @@ export function WorkspaceApp() {
           )}
           {error && <p className="auth-error" role="alert">{error}</p>}
           {message && <p className="auth-success" role="status">{message}</p>}
+          {canResendVerification && <button type="button" className="text-button" onClick={() => void resendVerification()}>Resend verification email</button>}
           <button className="auth-submit" type="submit" disabled={submitting}>{submitting ? "Please wait…" : mode === "register" ? "Create workspace" : mode === "recover" ? "Send recovery email" : mode === "reset" ? "Reset password" : mode === "verify" ? "Verify email" : "Sign in"}</button>
         </form>
 

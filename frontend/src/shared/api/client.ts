@@ -15,6 +15,33 @@ export const sessionStorageKeys = {
  * refresh-token rotation while leaving response interpretation to features.
  */
 export function createApiClient(onSessionRefresh?: (tokens: SessionTokens) => void) {
+  let refreshPromise: Promise<SessionTokens | null> | null = null;
+
+  async function refreshSession(refreshToken: string): Promise<SessionTokens | null> {
+    if (!refreshPromise) {
+      refreshPromise = fetch(`${apiBaseUrl}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+        .then(async (response) => {
+          if (!response.ok) return null;
+          const body = await response.json() as {
+            access_token: string;
+            refresh_token: string;
+          };
+          return {
+            accessToken: body.access_token,
+            refreshToken: body.refresh_token,
+          };
+        })
+        .finally(() => {
+          refreshPromise = null;
+        });
+    }
+    return refreshPromise;
+  }
+
   async function request(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
     const accessToken = localStorage.getItem(sessionStorageKeys.access);
@@ -25,17 +52,13 @@ export function createApiClient(onSessionRefresh?: (tokens: SessionTokens) => vo
 
     const refreshToken = localStorage.getItem(sessionStorageKeys.refresh);
     if (!refreshToken) return response;
-    const refreshed = await fetch(`${apiBaseUrl}/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-    if (!refreshed.ok) return response;
-    const tokens = await refreshed.json() as { access_token: string; refresh_token: string };
-    localStorage.setItem(sessionStorageKeys.access, tokens.access_token);
-    localStorage.setItem(sessionStorageKeys.refresh, tokens.refresh_token);
-    onSessionRefresh?.({ accessToken: tokens.access_token, refreshToken: tokens.refresh_token });
-    headers.set("Authorization", `Bearer ${tokens.access_token}`);
+    const tokens = await refreshSession(refreshToken);
+    if (!tokens) return response;
+
+    localStorage.setItem(sessionStorageKeys.access, tokens.accessToken);
+    localStorage.setItem(sessionStorageKeys.refresh, tokens.refreshToken);
+    onSessionRefresh?.(tokens);
+    headers.set("Authorization", `Bearer ${tokens.accessToken}`);
     return fetch(input, { ...init, headers });
   }
 

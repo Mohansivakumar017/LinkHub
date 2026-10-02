@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { apiBaseUrl } from "../../../shared/api/client";
 import { useSession } from "../../../shared/session/SessionProvider";
+import { useSelectedOrganization } from "../../../shared/session/organization";
 import { WorkspaceLayout } from "../../workspace/WorkspaceLayout";
 type Org = { id: string; name: string; slug?: string };
 type Member = { user_id: string; email: string; full_name?: string | null; role: string };
@@ -16,7 +17,8 @@ async function apiError(response: Response, fallback: string): Promise<string> {
 }
 
 export function OrganizationsPage() {
-  const { api } = useSession(); const [orgs, setOrgs] = useState<Org[]>([]), [org, setOrg] = useState("");
+  const { api } = useSession(); const [orgs, setOrgs] = useState<Org[]>([]);
+  const { organizationId: org, selectOrganization } = useSelectedOrganization();
   const [members, setMembers] = useState<Member[]>([]), [name, setName] = useState(""), [email, setEmail] = useState("");
   const [inviteToken, setInviteToken] = useState(""), [acceptToken, setAcceptToken] = useState(""), [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true), [membersLoading, setMembersLoading] = useState(false), [error, setError] = useState("");
@@ -32,7 +34,7 @@ export function OrganizationsPage() {
     setAuditLoading(false);
   }
   async function select(id: string) {
-    setOrg(id); setError(""); setAuditAction(""); setAuditResourceType("");
+    selectOrganization(id); setError(""); setAuditAction(""); setAuditResourceType("");
     if (!id) return setMembers([]), setAuditLogs([]);
     setMembersLoading(true);
     const [membersResponse] = await Promise.all([
@@ -43,7 +45,25 @@ export function OrganizationsPage() {
     setMembersLoading(false);
   }
   useEffect(() => { void load(); }, []);
-  async function create(e: FormEvent) { e.preventDefault(); const r = await api.request(`${apiBaseUrl}/organizations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }); setMessage(r.ok ? "Organization created" : "Could not create organization"); if (r.ok) { setName(""); await load(); } }
+  useEffect(() => {
+    if (org) {
+      void select(org);
+    } else {
+      setMembers([]);
+      setAuditLogs([]);
+    }
+  }, [org]);
+  async function create(e: FormEvent) {
+    e.preventDefault();
+    const r = await api.request(`${apiBaseUrl}/organizations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    setMessage(r.ok ? "Organization created" : await apiError(r, "Could not create organization"));
+    if (r.ok) {
+      const created = await r.json() as { id: string };
+      setName("");
+      selectOrganization(created.id);
+      await load();
+    }
+  }
   async function invite(e: FormEvent) { e.preventDefault(); const r = await api.request(`${apiBaseUrl}/organizations/${org}/invites`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, role: "member" }) }); if (!r.ok) return setMessage(await apiError(r, "Could not create invitation")); const b = await r.json(); setInviteToken(b.invite_token); setEmail(""); setMessage("Invitation created. Send the token to the invitee."); }
   async function accept(e: FormEvent) { e.preventDefault(); const token = acceptToken.trim(); if (!token) return setMessage("Paste an invitation token."); const r = await api.request(`${apiBaseUrl}/organizations/invites/accept`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invite_token: token }) }); setMessage(r.ok ? "Invitation accepted" : await apiError(r, "Could not accept invitation")); if (r.ok) { setAcceptToken(""); await load(); } }
   async function role(m: Member, value: string) { const r = await api.request(`${apiBaseUrl}/organizations/${org}/members/${m.user_id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: value }) }); setMessage(r.ok ? "Member role updated" : "Could not update member role"); if (r.ok) await select(org); }
@@ -51,7 +71,7 @@ export function OrganizationsPage() {
   async function remove(m: Member) { if (!window.confirm(`Remove ${m.email} from this organization?`)) return; const r = await api.request(`${apiBaseUrl}/organizations/${org}/members/${m.user_id}`, { method: "DELETE" }); setMessage(r.ok ? "Member removed" : "Could not remove member"); if (r.ok) await select(org); }
   return <WorkspaceLayout title="Organizations & members" description="Manage organization membership, invitations, and roles." message={message}>
     {error && <p className="auth-error" role="alert">{error}</p>}
-    <section className="toolbar organization-toolbar card"><label>Organization<select value={org} onChange={e => void select(e.target.value)}><option value="">Select an organization</option>{orgs.map(o => <option value={o.id} key={o.id}>{o.name}</option>)}</select></label>{org && <div className="organization-context"><strong>{orgs.find(item => item.id === org)?.name}</strong><span>Organization ID</span><code>{org}</code></div>}<form className="create-form" onSubmit={create}><label>New organization<input placeholder="Organization name" value={name} onChange={e => setName(e.target.value)} required /></label><button>Create organization</button></form></section>
+    <section className="toolbar organization-toolbar card"><label>Organization<select value={org} onChange={e => void selectOrganization(e.target.value)}><option value="">Select an organization</option>{orgs.map(o => <option value={o.id} key={o.id}>{o.name}</option>)}</select></label>{org && <div className="organization-context"><strong>{orgs.find(item => item.id === org)?.name}</strong><span>Organization ID</span><code>{org}</code></div>}<form className="create-form" onSubmit={create}><label>New organization<input placeholder="Organization name" value={name} onChange={e => setName(e.target.value)} required /></label><button>Create organization</button></form></section>
     {loading && <section className="card"><p className="muted">Loading organizations…</p></section>}
     {!loading && !orgs.length && <section className="card empty-state"><h2>No organizations yet</h2><p className="muted">Create your first organization to manage links and invite your team.</p></section>}
     <section className="card"><h2>Accept an invitation</h2><p className="muted">Sign in with the same email address that received the invitation, then paste the complete token.</p><form className="create-form" onSubmit={accept}><input placeholder="Invitation token" value={acceptToken} onChange={e => setAcceptToken(e.target.value)} required /><button>Accept invite</button></form></section>

@@ -120,7 +120,7 @@ h1 { margin-bottom: 8px; }
 .link-row p { color: #69758c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 720px; margin: 5px 0 0; }
 .link-summary { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .link-summary input { width: auto; margin-top: 4px; }
-.link-row a { color: #315efb; font-weight: 650; text-decoration: none; }
+.link-destination { color: #315efb; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .link-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
 .link-actions button { padding: 8px 10px; font-size: 12px; }
 .settings-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 18px; }

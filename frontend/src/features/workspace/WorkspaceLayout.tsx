@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { apiBaseUrl } from "../../shared/api/client";
 import { useSession } from "../../shared/session/SessionProvider";
+import { useSelectedOrganization } from "../../shared/session/organization";
 
 type Profile = { is_platform_admin: boolean; full_name?: string | null };
 type Organization = { id: string; name: string };
@@ -9,23 +10,22 @@ type Organization = { id: string; name: string };
 export function WorkspaceLayout({ title, description, children, message }: { title: string; description: string; children: ReactNode; message?: string }) {
   const { api, clear } = useSession(); const navigate = useNavigate(); const [profile, setProfile] = useState<Profile | null>(null);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [organizationId, setOrganizationId] = useState(() => localStorage.getItem("linkhub_organization_id") ?? "");
+  const { organizationId, selectOrganization } = useSelectedOrganization();
+
   useEffect(() => {
     void api.request(`${apiBaseUrl}/users/me`).then(async r => r.ok && setProfile(await r.json()));
     void api.request(`${apiBaseUrl}/organizations`).then(async r => {
       if (r.ok) {
         const items = await r.json() as Organization[];
         setOrganizations(items);
+        if (organizationId && !items.some(item => item.id === organizationId)) {
+          selectOrganization("");
+        }
       }
     });
-  }, [api]);
+  }, [api, organizationId]);
+
   async function logout() { const refresh = localStorage.getItem("linkhub_refresh_token"); if (refresh) await fetch(`${apiBaseUrl}/auth/logout`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: refresh }) }); clear(); navigate("/auth"); }
-  function selectOrganization(id: string) {
-    setOrganizationId(id);
-    if (id) localStorage.setItem("linkhub_organization_id", id);
-    else localStorage.removeItem("linkhub_organization_id");
-    window.dispatchEvent(new CustomEvent("linkhub:organization-changed", { detail: id }));
-  }
   return <main className="workspace-shell">
     <aside className="workspace-sidebar">
       <div className="workspace-brand"><span className="brand-mark-small">↗</span><div><strong>LinkHub</strong><small>Link operations platform</small></div></div>

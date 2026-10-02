@@ -1,7 +1,7 @@
 import datetime
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,6 +10,12 @@ from app.infrastructure.db.base import Base
 
 class URL(Base):
     __tablename__ = "urls"
+    __table_args__ = (
+        UniqueConstraint("short_code", name="uq_urls_short_code"),
+        UniqueConstraint("custom_alias", name="uq_urls_custom_alias"),
+        Index("ix_urls_short_code", "short_code", unique=True),
+        Index("ix_urls_custom_alias", "custom_alias", unique=True),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -19,20 +25,20 @@ class URL(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     original_url: Mapped[str] = mapped_column(Text, nullable=False)
-    short_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
-    custom_alias: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
+    short_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    custom_alias: Mapped[str | None] = mapped_column(String(64), nullable=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     expires_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     expiration_notified_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime, nullable=True
     )
-    one_time: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    one_time: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     click_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    is_private: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_private: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     archived_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
-    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     deleted_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=datetime.datetime.utcnow, nullable=False
