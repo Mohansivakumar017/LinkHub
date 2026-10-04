@@ -6,6 +6,7 @@ import pytest
 
 from app.application.services.url_service import (
     URLNotFoundError,
+    URLPermissionDeniedError,
     URLService,
 )
 
@@ -142,6 +143,39 @@ async def test_create_url_normalizes_timezone_aware_expiration() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "unsafe_url",
+    ["javascript:alert(1)", "data:text/html,hello", "ftp://example.com/file"],
+)
+async def test_create_and_update_reject_non_http_redirect_targets(
+    unsafe_url: str,
+) -> None:
+    service = URLService(
+        session=FakeSession(),
+        url_repo=FakeURLRepo(),
+        membership_repo=FakeMemberRepo(True),
+        cache=FakeCache(),
+    )
+    organization_id = uuid4()
+    user_id = uuid4()
+
+    with pytest.raises(ValueError, match="must use http or https"):
+        await service.create_url(
+            organization_id, user_id, original_url=unsafe_url
+        )
+
+    valid = await service.create_url(
+        organization_id,
+        user_id,
+        original_url="https://example.com/safe",
+    )
+    with pytest.raises(ValueError, match="must use http or https"):
+        await service.update_url(
+            organization_id, user_id, valid.id, original_url=unsafe_url
+        )
+
+
+@pytest.mark.asyncio
 async def test_not_found_raises() -> None:
     session = FakeSession()
     repo = FakeURLRepo()
@@ -211,3 +245,38 @@ async def test_resolve_uses_cache() -> None:
     repo.items.pop(created.id)
     second = await service.resolve_short_code(created.short_code)
     assert second["short_code"] == created.short_code
+
+
+@pytest.mark.asyncio
+async def test_get_url_looks_up_directly_and_checks_organization_membership() -> None:
+    session = FakeSession()
+    repo = FakeURLRepo()
+    membership = FakeMemberRepo(True)
+    service = URLService(
+        session=session,
+        url_repo=repo,
+        membership_repo=membership,
+        cache=FakeCache(),
+    )
+    organization_id = uuid4()
+    user_id = uuid4()
+    created = await service.create_url(
+        organization_id=organization_id,
+        owner_user_id=user_id,
+        original_url="https://example.com/old-link",
+    )
+
+    found = await service.get_url(organization_id, user_id, created.id)
+
+    assert found is created
+
+    membership.allow = False
+    with pytest.raises(URLPermissionDeniedError, match="organization access denied"):
+        await service.get_url(organization_id, user_id, created.id)
+
+    membership.allow = True
+    with pytest.raises(URLNotFoundError, match="url not found"):
+        await service.get_url(uuid4(), user_id, created.id)
+    created.is_deleted = True
+    with pytest.raises(URLNotFoundError, match="url not found"):
+        await service.get_url(organization_id, user_id, created.id)

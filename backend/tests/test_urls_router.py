@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.dependencies import ApiKeyPrincipal
@@ -29,11 +30,24 @@ class FakeURLService:
                 "click_limit": kwargs.get("click_limit"),
                 "is_private": kwargs.get("is_private", False),
                 "is_archived": False,
+                "is_deleted": False,
             },
         )()
 
     async def list_urls(self, organization_id, requester_user_id, **kwargs):
         return []
+
+    async def get_url(self, organization_id, requester_user_id, url_id):
+        return type(
+            "URL",
+            (),
+            {
+                "id": url_id,
+                "organization_id": organization_id,
+                "short_code": "qr-link",
+                "is_deleted": False,
+            },
+        )()
 
     async def update_url(self, organization_id, requester_user_id, url_id, **changes):
         return type(
@@ -134,6 +148,14 @@ def test_urls_router_contract(monkeypatch) -> None:
     list_res = client.get(f"/api/v1/urls/organizations/{org_id}")
     assert list_res.status_code == 200
 
+    qr_res = client.get(
+        f"/api/v1/urls/{url_id}/qr",
+        params={"organization_id": org_id},
+    )
+    assert qr_res.status_code == 200
+    assert qr_res.headers["content-type"] == "image/png"
+    assert qr_res.content.startswith(b"\x89PNG\r\n\x1a\n")
+
     resolve_res = client.get("/api/v1/urls/resolve/acme")
     assert resolve_res.status_code == 200
     assert resolve_res.headers["cache-control"] == "private, no-store"
@@ -178,6 +200,29 @@ def test_urls_router_contract(monkeypatch) -> None:
     assert delete_res.status_code == 204
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(
+    "original_url",
+    ["javascript:alert(1)", "data:text/html,unsafe", "ftp://example.com/file"],
+)
+def test_create_url_rejects_non_http_redirect_schemes(original_url: str) -> None:
+    app.dependency_overrides[urls_router_module.get_db_session] = fake_db_session
+    app.dependency_overrides[urls_router_module.get_current_user] = fake_current_user
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            "/api/v1/urls",
+            json={
+                "organization_id": str(uuid4()),
+                "original_url": original_url,
+            },
+        )
+
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_used_link_responses_are_not_cacheable(monkeypatch) -> None:

@@ -103,10 +103,12 @@ class ApiKeyService:
         if organization_id is None:
             return
         result = await self._session.execute(
-            select(OrganizationMember.id).where(
+            select(OrganizationMember)
+            .where(
                 OrganizationMember.organization_id == organization_id,
                 OrganizationMember.user_id == user_id,
             )
+            .with_for_update()
         )
         if result.scalar_one_or_none() is None:
             raise ApiKeyNotFoundError("organization not found or access denied")

@@ -94,7 +94,22 @@ test("authenticated user can verify, create an organization, and rotate an API k
     data: { email: invitedEmail, role: "member" },
   });
   expect(invitation.status()).toBe(200);
-  const { invite_token: inviteToken } = await invitation.json() as { invite_token: string };
+  const { invite_id: inviteId, invite_token: originalInviteToken } = await invitation.json() as { invite_id: string; invite_token: string };
+  const pendingInvites = await request.get(`/api/v1/organizations/${organizationId}/invites`, { headers });
+  expect(pendingInvites.status()).toBe(200);
+  expect(await pendingInvites.json()).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: inviteId, invited_email: invitedEmail, role: "member", is_expired: false }),
+  ]));
+  const outstandingAdminInvite = await request.post(
+    `/api/v1/organizations/${organizationId}/invites`,
+    { headers, data: { email: invitedEmail, role: "admin" } },
+  );
+  expect(outstandingAdminInvite.status()).toBe(200);
+  const { invite_token: outstandingAdminToken } = await outstandingAdminInvite.json() as { invite_token: string };
+  const resend = await request.post(`/api/v1/organizations/${organizationId}/invites/${inviteId}/resend`, { headers });
+  expect(resend.status()).toBe(200);
+  const { invite_token: inviteToken } = await resend.json() as { invite_token: string };
+  expect(inviteToken).not.toBe(originalInviteToken);
 
   const invitedRegistration = await request.post("/api/v1/auth/register", {
     data: { email: invitedEmail, password, full_name: "Invited User" },
@@ -128,6 +143,11 @@ test("authenticated user can verify, create an organization, and rotate an API k
   expect(invitedLogin.status()).toBe(200);
   const invitedTokens = await invitedLogin.json() as { access_token: string };
   const invitedHeaders = { Authorization: `Bearer ${invitedTokens.access_token}` };
+  const rejectedOldInvite = await request.post("/api/v1/organizations/invites/accept", {
+    headers: invitedHeaders,
+    data: { invite_token: originalInviteToken },
+  });
+  expect(rejectedOldInvite.status()).toBe(400);
   const accepted = await request.post("/api/v1/organizations/invites/accept", {
     headers: invitedHeaders,
     data: { invite_token: inviteToken },
@@ -137,6 +157,22 @@ test("authenticated user can verify, create an organization, and rotate an API k
   expect(members.status()).toBe(200);
   expect(await members.json()).toEqual(expect.arrayContaining([
     expect.objectContaining({ email: invitedEmail, role: "member" }),
+  ]));
+  const revokedEmail = `revoked-${Date.now()}@example.com`;
+  const anotherInvite = await request.post(`/api/v1/organizations/${organizationId}/invites`, {
+    headers,
+    data: { email: revokedEmail, role: "member" },
+  });
+  expect(anotherInvite.status()).toBe(200);
+  const { invite_id: revokedInviteId } = await anotherInvite.json() as { invite_id: string };
+  const revokeInvite = await request.delete(
+    `/api/v1/organizations/${organizationId}/invites/${revokedInviteId}`,
+    { headers },
+  );
+  expect(revokeInvite.status()).toBe(204);
+  const revokedInvites = await request.get(`/api/v1/organizations/${organizationId}/invites`, { headers });
+  expect(await revokedInvites.json()).not.toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: revokedInviteId }),
   ]));
 
   const protectedLink = await request.post("/api/v1/urls", {
@@ -273,6 +309,9 @@ test("authenticated user can verify, create an organization, and rotate an API k
   await page.getByRole("dialog").getByRole("button", { name: "Open link" }).click();
   await expect(page.getByRole("dialog").getByRole("alert")).toHaveText("That password is incorrect. Try again.");
   await page.getByRole("dialog").getByLabel("Link password").fill("LinkPass123!");
+  await page.context().route("https://example.com/acceptance-protected", (route) =>
+    route.fulfill({ status: 200, body: "Protected destination" }),
+  );
   const destinationPagePromise = page.waitForEvent("popup");
   await page.getByRole("dialog").getByRole("button", { name: "Open link" }).click();
   const destinationPage = await destinationPagePromise;
@@ -293,6 +332,9 @@ test("authenticated user can verify, create an organization, and rotate an API k
   await page.getByRole("button", { name: "Load links" }).click();
   const limitedLinkRow = page.locator(".link-row").filter({ hasText: "Acceptance click-limited link" });
   await expect(limitedLinkRow).toBeVisible();
+  await page.context().route("https://example.com/acceptance-click-limited", (route) =>
+    route.fulfill({ status: 200, body: "Click-limited destination" }),
+  );
   const allowedOpen = page.waitForEvent("popup");
   const firstResolve = page.waitForResponse(response => response.url().includes("/urls/resolve/"));
   await limitedLinkRow.getByRole("button", { name: "Open" }).click();
@@ -304,6 +346,25 @@ test("authenticated user can verify, create an organization, and rotate an API k
   await limitedLinkRow.getByRole("button", { name: "Open" }).click();
   expect((await limitedResolve).status()).toBe(410);
   await expect(page.getByRole("alert")).toContainText("maximum number of opens");
+
+  const concurrentLink = await request.post("/api/v1/urls", {
+    headers,
+    data: {
+      organization_id: organizationId,
+      original_url: "https://example.com/acceptance-concurrent-one-time",
+      title: "Acceptance concurrent one-time link",
+      one_time: true,
+    },
+  });
+  expect(concurrentLink.status()).toBe(201);
+  const { short_code: concurrentCode } = await concurrentLink.json() as { short_code: string };
+  const concurrentOpens = await Promise.all(
+    Array.from({ length: 8 }, () =>
+      request.get(`/api/v1/urls/resolve/${concurrentCode}`),
+    ),
+  );
+  expect(concurrentOpens.filter(response => response.status() === 200)).toHaveLength(1);
+  expect(concurrentOpens.filter(response => response.status() === 410)).toHaveLength(7);
 
   const createdKey = await request.post("/api/v1/api-keys", {
     headers,
@@ -333,6 +394,11 @@ test("authenticated user can verify, create an organization, and rotate an API k
     { headers }
   );
   expect(removed.status()).toBe(204);
+  const rejectedOutstandingInvite = await request.post(
+    "/api/v1/organizations/invites/accept",
+    { headers: invitedHeaders, data: { invite_token: outstandingAdminToken } },
+  );
+  expect(rejectedOutstandingInvite.status()).toBe(400);
   const logout = await request.post("/api/v1/auth/logout", {
     data: { refresh_token: refreshedTokens.refresh_token },
   });

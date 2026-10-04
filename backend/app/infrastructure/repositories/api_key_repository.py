@@ -77,3 +77,18 @@ class ApiKeyRepository:
             .values(is_active=False, revoked_at=now)
         )
         await self._session.flush()
+
+    async def revoke_for_user_in_organization(
+        self, user_id: UUID, organization_id: UUID
+    ) -> None:
+        now = datetime.now(UTC).replace(tzinfo=None)
+        await self._session.execute(
+            update(ApiKey)
+            .where(
+                ApiKey.user_id == user_id,
+                ApiKey.organization_id == organization_id,
+                ApiKey.is_active.is_(True),
+            )
+            .values(is_active=False, revoked_at=now)
+        )
+        await self._session.flush()

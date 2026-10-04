@@ -5,6 +5,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.organization_service import (
+    AlreadyOrganizationMemberError,
     DuplicateOrganizationSlugError,
     InvalidInviteError,
     MemberNotFoundError,
@@ -35,7 +36,17 @@ class InviteMemberRequest(BaseModel):
 
 
 class InviteMemberResponse(BaseModel):
+    invite_id: str
     invite_token: str
+
+
+class OrganizationInviteResponse(BaseModel):
+    id: str
+    invited_email: str
+    role: OrganizationRole
+    expires_at: str
+    created_at: str
+    is_expired: bool
 
 
 class AcceptInviteRequest(BaseModel):
@@ -92,7 +103,85 @@ async def invite_member(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except PermissionDeniedError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    return InviteMemberResponse(invite_token=result.invite_token)
+    except AlreadyOrganizationMemberError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return InviteMemberResponse(
+        invite_id=str(result.invite_id), invite_token=result.invite_token
+    )
+
+
+@router.get("/{organization_id}/invites", response_model=list[OrganizationInviteResponse])
+async def list_invites(
+    organization_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> list[OrganizationInviteResponse]:
+    try:
+        invites = await OrganizationService(session).list_invites(
+            current_user.id, organization_id
+        )
+    except OrganizationNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    return [
+        OrganizationInviteResponse(
+            id=str(invite.id),
+            invited_email=invite.invited_email,
+            role=invite.role,
+            expires_at=invite.expires_at.isoformat(),
+            created_at=invite.created_at.isoformat(),
+            is_expired=invite.is_expired,
+        )
+        for invite in invites
+    ]
+
+
+@router.post(
+    "/{organization_id}/invites/{invite_id}/resend",
+    response_model=InviteMemberResponse,
+)
+async def resend_invite(
+    organization_id: UUID,
+    invite_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> InviteMemberResponse:
+    try:
+        result = await OrganizationService(session).resend_invite(
+            current_user.id, organization_id, invite_id
+        )
+    except OrganizationNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvalidInviteError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    return InviteMemberResponse(
+        invite_id=str(result.invite_id), invite_token=result.invite_token
+    )
+
+
+@router.delete(
+    "/{organization_id}/invites/{invite_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_invite(
+    organization_id: UUID,
+    invite_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    try:
+        await OrganizationService(session).revoke_invite(
+            current_user.id, organization_id, invite_id
+        )
+    except OrganizationNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvalidInviteError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.get("/{organization_id}/members")
@@ -211,6 +300,8 @@ async def accept_invite(
         org_id = await service.accept_invite(current_user.id, payload.invite_token)
     except InvalidInviteError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except AlreadyOrganizationMemberError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return {"organization_id": str(org_id), "status": "accepted"}
 
 

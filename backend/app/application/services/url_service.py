@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
+from app.core.urls import is_safe_redirect_url
 from app.infrastructure.cache.url_cache import RedisURLCache, URLCache
 from app.infrastructure.repositories.audit_repository import AuditRepository
 from app.infrastructure.repositories.organization_repository import (
@@ -69,6 +70,8 @@ class URLService:
         is_private: bool = False,
     ):
         await self._require_membership(organization_id, owner_user_id)
+        if not is_safe_redirect_url(original_url):
+            raise ValueError("destination URL must use http or https")
         expires_at = self._normalize_expiration(expires_at)
         short_code = await self._resolve_short_code(custom_alias)
         try:
@@ -97,6 +100,10 @@ class URLService:
 
     async def update_url(self, organization_id: UUID, requester_user_id: UUID, url_id: UUID, **changes):
         await self._require_membership(organization_id, requester_user_id)
+        if "original_url" in changes and not is_safe_redirect_url(
+            changes["original_url"]
+        ):
+            raise ValueError("destination URL must use http or https")
         if "expires_at" in changes:
             changes["expires_at"] = self._normalize_expiration(changes["expires_at"])
         get_for_update = getattr(self._urls, "get_by_id_for_update", self._urls.get_by_id)
@@ -252,6 +259,19 @@ class URLService:
             sort=sort,
             descending=descending,
         )
+
+    async def get_url(
+        self, organization_id: UUID, requester_user_id: UUID, url_id: UUID
+    ):
+        await self._require_membership(organization_id, requester_user_id)
+        item = await self._urls.get_by_id(url_id)
+        if (
+            item is None
+            or item.organization_id != organization_id
+            or item.is_deleted
+        ):
+            raise URLNotFoundError("url not found")
+        return item
 
     async def resolve_short_code(self, short_code: str):
         cached = await self._cache.get(short_code)

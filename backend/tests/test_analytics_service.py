@@ -339,3 +339,33 @@ def test_user_agent_dimensions_are_parsed() -> None:
         "AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1"
     )
     assert (browser, os_name, device) == ("Safari", "iOS", "Mobile")
+
+
+@pytest.mark.asyncio
+async def test_track_click_rejects_unsafe_legacy_redirect_target() -> None:
+    url = SimpleNamespace(
+        id=uuid4(),
+        organization_id=uuid4(),
+        short_code="legacy-unsafe",
+        original_url="javascript:alert(1)",
+        is_deleted=False,
+        is_archived=False,
+        expires_at=None,
+        one_time=False,
+        click_limit=None,
+        is_private=False,
+        password_hash=None,
+    )
+    service = AnalyticsService(
+        session=FakeSession(),
+        click_repo=FakeClickRepo(),
+        url_repo=FakeURLRepo(url),
+        org_member_repo=FakeOrgMemberRepo(),
+        cache=FakeCache(),
+    )
+
+    with pytest.raises(URLNotFoundError, match="destination is invalid"):
+        await service.track_click(
+            "legacy-unsafe",
+            ClickContext(None, None, None),
+        )

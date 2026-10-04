@@ -35,7 +35,8 @@ class Settings(BaseSettings):
     rate_limit_paths: str = (
         "/api/v1/auth/login,/api/v1/auth/refresh,/api/v1/auth/register,"
         "/api/v1/auth/forgot-password,/api/v1/auth/resend-verification,"
-        "/api/v1/auth/reset-password,/api/v1/auth/verify-email"
+        "/api/v1/auth/reset-password,/api/v1/auth/verify-email,"
+        "/api/v1/urls/resolve/,/api/v1/urls/r/"
     )
     cleanup_click_retention_days: int = 90
     cleanup_schedule_cron: str = "0 2 * * *"

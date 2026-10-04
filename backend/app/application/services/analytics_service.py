@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.url_service import URLNotFoundError
 from app.core.security import verify_password
+from app.core.urls import is_safe_redirect_url
 from app.infrastructure.cache.url_cache import RedisURLCache, URLCache
 from app.infrastructure.repositories.click_repository import ClickRepository
 from app.infrastructure.repositories.organization_repository import (
@@ -95,6 +96,8 @@ class AnalyticsService:
             url = await get_for_update(short_code)
         if url is None or url.is_deleted:
             raise URLNotFoundError("url not found")
+        if not is_safe_redirect_url(url.original_url):
+            raise URLNotFoundError("link destination is invalid")
         if url.expires_at and url.expires_at <= datetime.now(UTC).replace(tzinfo=None):
             raise URLExpiredError("url expired")
         if getattr(url, "is_private", False):

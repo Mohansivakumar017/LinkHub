@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.models.user import User
@@ -26,8 +26,18 @@ class UserRepository:
         result = await self._session.execute(query)
         return result.scalars().first()
 
+    async def get_by_email_case_insensitive(self, email: str) -> User | None:
+        query = select(User).where(func.lower(User.email) == email.lower())
+        result = await self._session.execute(query)
+        return result.scalars().first()
+
     async def get_by_id(self, user_id: UUID) -> User | None:
         query = select(User).where(User.id == user_id)
+        result = await self._session.execute(query)
+        return result.scalars().first()
+
+    async def get_by_id_for_update(self, user_id: UUID) -> User | None:
+        query = select(User).where(User.id == user_id).with_for_update()
         result = await self._session.execute(query)
         return result.scalars().first()
 

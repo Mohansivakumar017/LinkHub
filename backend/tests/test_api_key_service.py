@@ -18,14 +18,14 @@ class FakeRepository:
     def __init__(self) -> None:
         self.items = []
 
-    async def create(self, user_id, name, key_prefix, key_hash):
+    async def create(self, user_id, name, key_prefix, key_hash, organization_id=None):
         item = SimpleNamespace(
             id=uuid4(),
             name=name,
             key_prefix=key_prefix,
             key_hash=key_hash,
             is_active=True,
-            organization_id=None,
+            organization_id=organization_id,
         )
         self.items.append(item)
         return item
@@ -140,3 +140,58 @@ async def test_revoke_all_for_user_disables_only_active_keys() -> None:
         isinstance(value, datetime) and value.tzinfo is None
         for value in compiled.params.values()
     )
+
+
+@pytest.mark.asyncio
+async def test_revoke_for_member_removal_is_limited_to_active_org_keys() -> None:
+    from app.infrastructure.repositories.api_key_repository import ApiKeyRepository
+
+    class Session:
+        statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+
+        async def flush(self):
+            return None
+
+    user_id = uuid4()
+    organization_id = uuid4()
+    session = Session()
+
+    await ApiKeyRepository(session).revoke_for_user_in_organization(
+        user_id, organization_id
+    )
+
+    compiled = session.statement.compile()
+    assert "api_keys.user_id" in str(compiled)
+    assert "api_keys.organization_id" in str(compiled)
+    assert "api_keys.is_active" in str(compiled)
+    assert user_id in compiled.params.values()
+    assert organization_id in compiled.params.values()
+    assert False in compiled.params.values()
+
+
+@pytest.mark.asyncio
+async def test_scoped_key_creation_locks_the_membership_row() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    class Result:
+        def scalar_one_or_none(self):
+            return uuid4()
+
+    class Session(FakeSession):
+        statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return Result()
+
+    session = Session()
+    service = ApiKeyService(session, FakeRepository())
+    await service.create(uuid4(), "scoped", uuid4())
+
+    compiled = session.statement.compile(dialect=postgresql.dialect())
+    assert "FOR UPDATE" in str(compiled)
+    assert "organization_members.organization_id" in str(compiled)
+    assert "organization_members.user_id" in str(compiled)

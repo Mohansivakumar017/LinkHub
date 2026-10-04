@@ -105,6 +105,7 @@ class OrganizationInvite(Base):
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
     accepted_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=datetime.datetime.utcnow, nullable=False
     )

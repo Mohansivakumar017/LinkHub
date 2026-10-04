@@ -14,7 +14,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import RedirectResponse, Response
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.analytics_service import (
@@ -63,6 +63,13 @@ class URLCreateRequest(BaseModel):
     click_limit: int | None = Field(default=None, ge=1)
     is_private: bool = False
 
+    @field_validator("password")
+    @classmethod
+    def validate_password_byte_length(cls, value: str | None) -> str | None:
+        if value is not None and len(value.encode("utf-8")) > 72:
+            raise ValueError("link password must be at most 72 UTF-8 bytes")
+        return value
+
 
 class URLUpdateRequest(BaseModel):
     original_url: HttpUrl | None = None
@@ -73,6 +80,13 @@ class URLUpdateRequest(BaseModel):
     password: str | None = Field(default=None, min_length=8, max_length=128)
     click_limit: int | None = Field(default=None, ge=1)
     is_private: bool | None = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_byte_length(cls, value: str | None) -> str | None:
+        if value is not None and len(value.encode("utf-8")) > 72:
+            raise ValueError("link password must be at most 72 UTF-8 bytes")
+        return value
 
 
 class URLBulkCreateRequest(BaseModel):
@@ -278,13 +292,11 @@ async def download_qr_code(
 ) -> Response:
     service = URLService(session)
     try:
-        items = await service.list_urls(organization_id, current_user.id)
+        item = await service.get_url(organization_id, current_user.id, url_id)
     except URLPermissionDeniedError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-
-    item = next((candidate for candidate in items if candidate.id == url_id), None)
-    if item is None or item.is_deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="url not found")
+    except URLNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     import qrcode
 

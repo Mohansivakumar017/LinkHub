@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.auth_service import (
@@ -13,6 +13,13 @@ from app.application.services.auth_service import (
 from app.infrastructure.db.session import get_db_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+MAX_PASSWORD_UTF8_BYTES = 72
+
+
+def _validate_password_byte_length(value: str) -> str:
+    if len(value.encode("utf-8")) > MAX_PASSWORD_UTF8_BYTES:
+        raise ValueError("password must be at most 72 UTF-8 bytes")
+    return value
 
 
 class RegisterRequest(BaseModel):
@@ -20,10 +27,20 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     full_name: str | None = Field(default=None, max_length=255)
 
+    @field_validator("password")
+    @classmethod
+    def validate_password_byte_length(cls, value: str) -> str:
+        return _validate_password_byte_length(value)
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_byte_length(cls, value: str) -> str:
+        return _validate_password_byte_length(value)
 
 
 class RefreshRequest(BaseModel):
@@ -47,6 +64,11 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password_byte_length(cls, value: str) -> str:
+        return _validate_password_byte_length(value)
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)

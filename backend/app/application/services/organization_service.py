@@ -13,6 +13,7 @@ from app.infrastructure.email.sender import (
     EmailMessage,
     EmailSender,
 )
+from app.infrastructure.repositories.api_key_repository import ApiKeyRepository
 from app.infrastructure.repositories.audit_repository import AuditRepository
 from app.infrastructure.repositories.organization_repository import (
     OrganizationInviteRepository,
@@ -46,9 +47,24 @@ class MemberNotFoundError(OrganizationError):
     pass
 
 
+class AlreadyOrganizationMemberError(OrganizationError):
+    pass
+
+
 @dataclass(frozen=True)
 class OrganizationInviteResult:
+    invite_id: UUID
     invite_token: str
+
+
+@dataclass(frozen=True)
+class OrganizationInviteSummary:
+    id: UUID
+    invited_email: str
+    role: OrganizationRole
+    expires_at: datetime
+    created_at: datetime
+    is_expired: bool
 
 
 class OrganizationService:
@@ -61,6 +77,7 @@ class OrganizationService:
         user_repo: UserRepository | None = None,
         email_sender: EmailSender | None = None,
         audit_repo: AuditRepository | None = None,
+        api_key_repo: ApiKeyRepository | None = None,
     ) -> None:
         self._session = session
         self._orgs = org_repo or OrganizationRepository(session)
@@ -68,6 +85,7 @@ class OrganizationService:
         self._invites = invite_repo or OrganizationInviteRepository(session)
         self._users = user_repo or UserRepository(session)
         self._email_sender = email_sender or BackgroundEmailSender()
+        self._api_keys = api_key_repo or ApiKeyRepository(session)
         self._audit = audit_repo or (
             AuditRepository(session) if isinstance(session, AsyncSession) else None
         )
@@ -94,8 +112,14 @@ class OrganizationService:
     async def list_user_organizations(self, user_id: UUID) -> list[dict[str, str]]:
         organizations = await self._orgs.list_for_user(user_id)
         return [
-            {"id": str(org.id), "name": org.name, "slug": org.slug, "owner_user_id": str(org.owner_user_id)}
-            for org in organizations
+            {
+                "id": str(org.id),
+                "name": org.name,
+                "slug": org.slug,
+                "owner_user_id": str(org.owner_user_id),
+                "role": role.value,
+            }
+            for org, role in organizations
         ]
 
     async def invite_member(
@@ -105,16 +129,12 @@ class OrganizationService:
         invited_email: str,
         role: OrganizationRole,
     ) -> OrganizationInviteResult:
+        requester_membership = await self._require_invite_manager(
+            requester_user_id, organization_id
+        )
         organization = await self._orgs.get_by_id(organization_id)
         if organization is None:
             raise OrganizationNotFoundError("organization not found")
-
-        requester_membership = await self._members.get_membership(organization_id, requester_user_id)
-        if requester_membership is None or requester_membership.role not in {
-            OrganizationRole.OWNER,
-            OrganizationRole.ADMIN,
-        }:
-            raise PermissionDeniedError("insufficient privileges for invite")
         if role == OrganizationRole.OWNER:
             raise PermissionDeniedError("owner role cannot be assigned by invitation")
         if (
@@ -122,11 +142,18 @@ class OrganizationService:
             and role != OrganizationRole.MEMBER
         ):
             raise PermissionDeniedError("admins can only invite members")
+        invited_user = await self._users.get_by_email_case_insensitive(invited_email)
+        if invited_user is not None and await self._members.get_membership(
+            organization_id, invited_user.id
+        ) is not None:
+            raise AlreadyOrganizationMemberError(
+                "user is already a member of this organization"
+            )
 
         invite_token = generate_refresh_token()
         invite_hash = hash_token(invite_token)
         expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=7)
-        await self._invites.create_invite(
+        invite = await self._invites.create_invite(
             organization_id=organization_id,
             invited_email=invited_email,
             role=role,
@@ -140,14 +167,133 @@ class OrganizationService:
         )
         await self._session.commit()
 
+        await self._send_invite_email(organization.name, invited_email, invite_token)
+        return OrganizationInviteResult(invite_id=invite.id, invite_token=invite_token)
+
+    async def list_invites(
+        self, requester_user_id: UUID, organization_id: UUID
+    ) -> list[OrganizationInviteSummary]:
+        requester = await self._require_invite_manager(
+            requester_user_id, organization_id
+        )
+        now = datetime.now(UTC).replace(tzinfo=None)
+        invites = await self._invites.list_open_for_organization(organization_id)
+        if requester.role == OrganizationRole.ADMIN:
+            invites = [
+                invite for invite in invites if invite.role == OrganizationRole.MEMBER
+            ]
+        return [
+            OrganizationInviteSummary(
+                id=invite.id,
+                invited_email=invite.invited_email,
+                role=invite.role,
+                expires_at=invite.expires_at,
+                created_at=invite.created_at,
+                is_expired=invite.expires_at <= now,
+            )
+            for invite in invites
+        ]
+
+    async def resend_invite(
+        self, requester_user_id: UUID, organization_id: UUID, invite_id: UUID
+    ) -> OrganizationInviteResult:
+        await self._require_invite_manager(requester_user_id, organization_id)
+        organization = await self._orgs.get_by_id(organization_id)
+        if organization is None:
+            raise OrganizationNotFoundError("organization not found")
+        invite = await self._invites.get_for_organization_for_update(
+            organization_id, invite_id
+        )
+        if invite is None or invite.accepted_at is not None or invite.revoked_at is not None:
+            raise InvalidInviteError("pending invitation not found")
+
+        requester_membership = await self._members.get_membership(
+            organization_id, requester_user_id
+        )
+        if (
+            requester_membership is not None
+            and requester_membership.role == OrganizationRole.ADMIN
+            and invite.role != OrganizationRole.MEMBER
+        ):
+            raise PermissionDeniedError("admins can only manage member invitations")
+
+        invite_token = generate_refresh_token()
+        expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=7)
+        await self._invites.rotate(
+            invite,
+            hash_token(invite_token),
+            expires_at,
+            requester_user_id,
+        )
+        await self._record_audit(
+            requester_user_id,
+            "organization.invite_resent",
+            "organization_invite",
+            str(invite.id),
+        )
+        await self._session.commit()
+        await self._send_invite_email(
+            organization.name, invite.invited_email, invite_token
+        )
+        return OrganizationInviteResult(
+            invite_id=invite.id, invite_token=invite_token
+        )
+
+    async def revoke_invite(
+        self, requester_user_id: UUID, organization_id: UUID, invite_id: UUID
+    ) -> None:
+        await self._require_invite_manager(requester_user_id, organization_id)
+        invite = await self._invites.get_for_organization_for_update(
+            organization_id, invite_id
+        )
+        if invite is None or invite.accepted_at is not None or invite.revoked_at is not None:
+            raise InvalidInviteError("pending invitation not found")
+
+        requester_membership = await self._members.get_membership(
+            organization_id, requester_user_id
+        )
+        if (
+            requester_membership is not None
+            and requester_membership.role == OrganizationRole.ADMIN
+            and invite.role != OrganizationRole.MEMBER
+        ):
+            raise PermissionDeniedError("admins can only manage member invitations")
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        await self._invites.revoke(invite, now)
+        await self._record_audit(
+            requester_user_id,
+            "organization.invite_revoked",
+            "organization_invite",
+            str(invite.id),
+        )
+        await self._session.commit()
+
+    async def _require_invite_manager(
+        self, requester_user_id: UUID, organization_id: UUID
+    ):
+        if await self._orgs.get_by_id(organization_id) is None:
+            raise OrganizationNotFoundError("organization not found")
+        requester = await self._members.get_membership_for_update(
+            organization_id, requester_user_id
+        )
+        if requester is None or requester.role not in {
+            OrganizationRole.OWNER,
+            OrganizationRole.ADMIN,
+        }:
+            raise PermissionDeniedError("insufficient privileges for invitations")
+        return requester
+
+    async def _send_invite_email(
+        self, organization_name: str, invited_email: str, invite_token: str
+    ) -> None:
         await self._email_sender.send(
             EmailMessage(
                 to_email=invited_email,
-                subject=f"Invitation to join {organization.name}",
+                subject=f"Invitation to join {organization_name}",
                 body=f"Use this invite token to join organization: {invite_token}",
             )
         )
-        return OrganizationInviteResult(invite_token=invite_token)
 
     async def list_members(
         self, requester_user_id: UUID, organization_id: UUID
@@ -198,7 +344,9 @@ class OrganizationService:
         requester = await self._members.get_membership(
             organization_id, requester_user_id
         )
-        target = await self._members.get_membership(organization_id, member_user_id)
+        target = await self._members.get_membership_for_update(
+            organization_id, member_user_id
+        )
         if requester is None or requester.role != OrganizationRole.OWNER:
             raise PermissionDeniedError("only the owner can change member roles")
         if target is None:
@@ -221,19 +369,32 @@ class OrganizationService:
         requester = await self._members.get_membership(
             organization_id, requester_user_id
         )
-        target = await self._members.get_membership(organization_id, member_user_id)
         if requester is None or requester.role not in {
             OrganizationRole.OWNER,
             OrganizationRole.ADMIN,
         }:
             raise PermissionDeniedError("insufficient privileges to remove member")
-        if target is None:
-            raise MemberNotFoundError("member not found")
         if member_user_id == organization.owner_user_id:
             raise PermissionDeniedError("organization owner cannot be removed")
+        removed_user = await self._users.get_by_id_for_update(member_user_id)
+        target = await self._members.get_membership_for_update(
+            organization_id, member_user_id
+        )
+        if target is None or removed_user is None:
+            raise MemberNotFoundError("member not found")
         if requester.role == OrganizationRole.ADMIN and target.role != OrganizationRole.MEMBER:
             raise PermissionDeniedError("admins can only remove members")
         await self._members.remove_member(target)
+        now = datetime.now(UTC).replace(tzinfo=None)
+        await self._invites.revoke_open_for_inviter(
+            organization_id, member_user_id, now
+        )
+        await self._invites.revoke_open_for_invitee(
+            organization_id, removed_user.email, now
+        )
+        await self._api_keys.revoke_for_user_in_organization(
+            member_user_id, organization_id
+        )
         await self._record_audit(
             requester_user_id, "organization.member_removed", "organization",
             str(organization_id), {"member_user_id": str(member_user_id)},
@@ -241,19 +402,29 @@ class OrganizationService:
         await self._session.commit()
 
     async def accept_invite(self, user_id: UUID, invite_token: str) -> UUID:
+        user = await self._users.get_by_id_for_update(user_id)
+        if user is None:
+            raise InvalidInviteError("invite email does not match user")
         invite_hash = hash_token(invite_token.strip())
         invite = await self._invites.get_by_token_hash(invite_hash)
         now = datetime.now(UTC).replace(tzinfo=None)
-        if invite is None or invite.accepted_at is not None or invite.expires_at <= now:
+        if (
+            invite is None
+            or invite.accepted_at is not None
+            or invite.revoked_at is not None
+            or invite.expires_at <= now
+        ):
             raise InvalidInviteError("invalid or expired invite")
 
-        user = await self._users.get_by_id(user_id)
-        if user is None or user.email.lower() != invite.invited_email.lower():
+        if user.email.lower() != invite.invited_email.lower():
             raise InvalidInviteError("invite email does not match user")
 
         existing = await self._members.get_membership(invite.organization_id, user_id)
-        if existing is None:
-            await self._members.add_member(invite.organization_id, user_id, invite.role)
+        if existing is not None:
+            raise AlreadyOrganizationMemberError(
+                "user is already a member of this organization"
+            )
+        await self._members.add_member(invite.organization_id, user_id, invite.role)
         await self._invites.mark_accepted(invite)
         await self._record_audit(
             user_id, "organization.invite_accepted", "organization",

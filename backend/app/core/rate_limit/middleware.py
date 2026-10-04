@@ -39,13 +39,24 @@ class RedisTokenBucketRateLimitMiddleware(BaseHTTPMiddleware):
         self._capacity = settings.rate_limit_capacity
         self._refill_per_second = settings.rate_limit_refill_per_second
         self._paths = {p.strip() for p in settings.rate_limit_paths.split(",") if p.strip()}
+        self._prefixes = {path for path in self._paths if path.endswith("/")}
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        if not settings.rate_limit_enabled or request.url.path not in self._paths:
+        path = request.url.path
+        prefix = next(
+            (candidate for candidate in self._prefixes if path.startswith(candidate)),
+            None,
+        )
+        if not settings.rate_limit_enabled or (
+            path not in self._paths and prefix is None
+        ):
+            return await call_next(request)
+        if prefix is not None and "password" not in request.query_params:
             return await call_next(request)
 
         identifier = request.client.host if request.client else "unknown"
-        bucket_key = f"rl:{request.url.path}:{identifier}"
+        bucket_path = prefix or path
+        bucket_key = f"rl:{bucket_path}:{identifier}"
         now = time.time()
 
         try:

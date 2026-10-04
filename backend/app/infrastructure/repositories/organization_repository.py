@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.models.organization import (
@@ -32,15 +32,17 @@ class OrganizationRepository:
         result = await self._session.execute(query)
         return result.scalars().first()
 
-    async def list_for_user(self, user_id: UUID) -> list[Organization]:
+    async def list_for_user(
+        self, user_id: UUID
+    ) -> list[tuple[Organization, OrganizationRole]]:
         query = (
-            select(Organization)
+            select(Organization, OrganizationMember.role)
             .join(OrganizationMember, OrganizationMember.organization_id == Organization.id)
             .where(OrganizationMember.user_id == user_id)
             .order_by(Organization.created_at.desc())
         )
         result = await self._session.execute(query)
-        return list(result.scalars().all())
+        return list(result.all())
 
     async def transfer_ownership(self, organization: Organization, new_owner_user_id: UUID) -> None:
         organization.owner_user_id = new_owner_user_id
@@ -69,6 +71,22 @@ class OrganizationMemberRepository:
                 OrganizationMember.organization_id == organization_id,
                 OrganizationMember.user_id == user_id,
             )
+        )
+        result = await self._session.execute(query)
+        return result.scalars().first()
+
+    async def get_membership_for_update(
+        self, organization_id: UUID, user_id: UUID
+    ) -> OrganizationMember | None:
+        query = (
+            select(OrganizationMember)
+            .where(
+                and_(
+                    OrganizationMember.organization_id == organization_id,
+                    OrganizationMember.user_id == user_id,
+                )
+            )
+            .with_for_update()
         )
         result = await self._session.execute(query)
         return result.scalars().first()
@@ -123,6 +141,91 @@ class OrganizationInviteRepository:
         )
         result = await self._session.execute(query)
         return result.scalars().first()
+
+    async def list_open_for_organization(
+        self, organization_id: UUID
+    ) -> list[OrganizationInvite]:
+        result = await self._session.execute(
+            select(OrganizationInvite)
+            .where(
+                OrganizationInvite.organization_id == organization_id,
+                OrganizationInvite.accepted_at.is_(None),
+                OrganizationInvite.revoked_at.is_(None),
+            )
+            .order_by(OrganizationInvite.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def get_for_organization_for_update(
+        self, organization_id: UUID, invite_id: UUID
+    ) -> OrganizationInvite | None:
+        result = await self._session.execute(
+            select(OrganizationInvite)
+            .where(
+                OrganizationInvite.id == invite_id,
+                OrganizationInvite.organization_id == organization_id,
+            )
+            .with_for_update()
+        )
+        return result.scalars().first()
+
+    async def rotate(
+        self,
+        invite: OrganizationInvite,
+        token_hash: str,
+        expires_at: datetime,
+        invited_by_user_id: UUID,
+    ) -> None:
+        invite.token_hash = token_hash
+        invite.expires_at = expires_at
+        invite.invited_by_user_id = invited_by_user_id
+        await self._session.flush()
+
+    async def revoke(self, invite: OrganizationInvite, revoked_at: datetime) -> None:
+        invite.revoked_at = revoked_at
+        await self._session.flush()
+
+    async def revoke_open_for_inviter(
+        self,
+        organization_id: UUID,
+        invited_by_user_id: UUID,
+        revoked_at: datetime,
+    ) -> None:
+        result = await self._session.execute(
+            select(OrganizationInvite)
+            .where(
+                OrganizationInvite.organization_id == organization_id,
+                OrganizationInvite.invited_by_user_id == invited_by_user_id,
+                OrganizationInvite.accepted_at.is_(None),
+                OrganizationInvite.revoked_at.is_(None),
+            )
+            .with_for_update()
+        )
+        invites = result.scalars().all()
+        for invite in invites:
+            invite.revoked_at = revoked_at
+        await self._session.flush()
+
+    async def revoke_open_for_invitee(
+        self,
+        organization_id: UUID,
+        invited_email: str,
+        revoked_at: datetime,
+    ) -> None:
+        result = await self._session.execute(
+            select(OrganizationInvite)
+            .where(
+                OrganizationInvite.organization_id == organization_id,
+                func.lower(OrganizationInvite.invited_email) == invited_email.lower(),
+                OrganizationInvite.accepted_at.is_(None),
+                OrganizationInvite.revoked_at.is_(None),
+            )
+            .with_for_update()
+        )
+        invites = result.scalars().all()
+        for invite in invites:
+            invite.revoked_at = revoked_at
+        await self._session.flush()
 
     async def mark_accepted(self, invite: OrganizationInvite) -> None:
         invite.accepted_at = datetime.utcnow()
