@@ -9,7 +9,6 @@ from app.core.config import get_settings
 from app.core.jwt import (
     create_access_token,
     create_email_verification_token,
-    create_password_reset_token,
     decode_token_with_type,
 )
 from app.core.security import (
@@ -24,6 +23,9 @@ from app.infrastructure.email.sender import (
     EmailSender,
 )
 from app.infrastructure.repositories.audit_repository import AuditRepository
+from app.infrastructure.repositories.password_reset_token_repository import (
+    PasswordResetTokenRepository,
+)
 from app.infrastructure.repositories.refresh_token_repository import (
     RefreshTokenRepository,
 )
@@ -68,10 +70,14 @@ class AuthService:
         refresh_token_repo: RefreshTokenRepository | None = None,
         email_sender: EmailSender | None = None,
         audit_repo: AuditRepository | None = None,
+        password_reset_token_repo: PasswordResetTokenRepository | None = None,
     ) -> None:
         self._session = session
         self._users = user_repo or UserRepository(session)
         self._refresh_tokens = refresh_token_repo or RefreshTokenRepository(session)
+        self._password_reset_tokens = password_reset_token_repo or (
+            PasswordResetTokenRepository(session)
+        )
         self._email_sender = email_sender or BackgroundEmailSender()
         self._audit = audit_repo or (
             AuditRepository(session) if isinstance(session, AsyncSession) else None
@@ -100,12 +106,19 @@ class AuthService:
     async def authenticate(self, email: str, password: str) -> AuthTokens:
         email = email.strip().lower()
         user = await self._users.get_by_email(email)
-        if user is None or not verify_password(password, user.hashed_password):
+        if (
+            user is None
+            or not getattr(user, "is_active", True)
+            or not verify_password(password, user.hashed_password)
+        ):
             raise InvalidCredentialsError("invalid credentials")
         if not getattr(user, "is_email_verified", False):
             raise EmailNotVerifiedError("email verification required")
 
-        access_token = create_access_token(subject=str(user.id))
+        access_token = create_access_token(
+            subject=str(user.id),
+            extra_claims={"auth_version": getattr(user, "auth_version", 0)},
+        )
         refresh_token = generate_refresh_token()
         expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
             days=get_settings().refresh_token_exp_days
@@ -146,7 +159,10 @@ class AuthService:
         await self._record_audit(token.user_id, "auth.token_refreshed", "user", str(token.user_id))
         await self._session.commit()
 
-        access_token = create_access_token(subject=str(token.user_id))
+        access_token = create_access_token(
+            subject=str(token.user_id),
+            extra_claims={"auth_version": getattr(user, "auth_version", 0)},
+        )
         return AuthTokens(access_token=access_token, refresh_token=new_refresh_token)
 
     async def logout(self, raw_refresh_token: str) -> None:
@@ -194,7 +210,16 @@ class AuthService:
         if user is None:
             return
 
-        token = create_password_reset_token(subject=str(user.id))
+        token = generate_refresh_token()
+        expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+            minutes=get_settings().reset_password_token_exp_minutes
+        )
+        await self._password_reset_tokens.create(
+            user_id=user.id,
+            token_hash=hash_token(token),
+            expires_at=expires_at,
+        )
+        await self._session.commit()
         await self._email_sender.send(
             EmailMessage(
                 to_email=user.email,
@@ -204,16 +229,20 @@ class AuthService:
         )
 
     async def reset_password(self, reset_token: str, new_password: str) -> None:
-        try:
-            payload = decode_token_with_type(reset_token, "reset_password")
-            user_id = UUID(payload["sub"])
-        except (KeyError, ValueError, PyJWTError) as exc:
-            raise InvalidVerificationTokenError("invalid reset token") from exc
+        token = await self._password_reset_tokens.get_by_hash(hash_token(reset_token))
+        now = datetime.now(UTC).replace(tzinfo=None)
+        if (
+            token is None
+            or token.consumed_at is not None
+            or token.expires_at <= now
+        ):
+            raise InvalidVerificationTokenError("invalid reset token")
 
-        user = await self._users.get_by_id(user_id)
+        user = await self._users.get_by_id(token.user_id)
         if user is None:
             raise InvalidVerificationTokenError("invalid reset token")
 
+        await self._password_reset_tokens.mark_consumed(token, now)
         await self._users.update_password(user, hash_password(new_password))
         await self._refresh_tokens.revoke_all_for_user(user_id=user.id)
         await self._record_audit(user.id, "auth.password_reset", "user", str(user.id))

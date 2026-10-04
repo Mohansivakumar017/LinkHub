@@ -34,7 +34,7 @@ export function SharedLinkPage() {
       try {
         response = await fetch(
           `${apiBaseUrl}/urls/resolve/${encodeURIComponent(code)}${query}`,
-          { headers },
+          { headers, cache: "no-store" },
         );
       } catch {
         setError("The link service is unavailable right now. Please try again.");
@@ -53,7 +53,13 @@ export function SharedLinkPage() {
         error?: { message?: string };
       };
       const detail = body.detail ?? body.error?.message ?? "";
-      setError(describeSharedLinkFailure(response.status, detail).message);
+      setError(
+        describeSharedLinkFailure(
+          response.status,
+          detail,
+          response.headers.get("Retry-After"),
+        ).message,
+      );
       setLoading(false);
     },
     [code, password, tokens?.accessToken],

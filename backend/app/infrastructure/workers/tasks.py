@@ -17,9 +17,11 @@ from app.infrastructure.email.sender import (
     BackgroundEmailSender,
     EmailMessage,
     SMTPEmailSender,
-    StructuredLogEmailSender,  # noqa: F401
 )
 from app.infrastructure.repositories.click_repository import ClickRepository
+from app.infrastructure.repositories.password_reset_token_repository import (
+    PasswordResetTokenRepository,
+)
 from app.infrastructure.repositories.refresh_token_repository import (
     RefreshTokenRepository,
 )
@@ -53,6 +55,9 @@ async def _cleanup() -> dict[str, int]:
         expired_short_codes = await urls.get_expired_short_codes()
         expired_urls = await urls.archive_expired()
         expired_tokens = await RefreshTokenRepository(session).delete_expired()
+        expired_reset_tokens = await PasswordResetTokenRepository(
+            session
+        ).delete_expired()
         deleted_clicks = await ClickRepository(session).delete_older_than(
             settings.cleanup_click_retention_days
         )
@@ -63,6 +68,7 @@ async def _cleanup() -> dict[str, int]:
         return {
             "expired_urls": expired_urls,
             "expired_tokens": expired_tokens,
+            "expired_reset_tokens": expired_reset_tokens,
             "deleted_clicks": deleted_clicks,
         }
 

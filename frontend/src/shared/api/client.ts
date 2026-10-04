@@ -10,6 +10,22 @@ export const sessionStorageKeys = {
   refresh: "linkhub_refresh_token",
 } as const;
 
+async function fetchApiResponse(input: RequestInfo | URL, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    return new Response(JSON.stringify({
+      error: {
+        code: "network_error",
+        message: "Could not reach LinkHub. Check your connection and try again.",
+      },
+    }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
 /**
  * One API boundary for all feature modules. It owns bearer injection and
  * refresh-token rotation while leaving response interpretation to features.
@@ -47,7 +63,7 @@ export function createApiClient(onSessionRefresh?: (tokens: SessionTokens) => vo
     const accessToken = localStorage.getItem(sessionStorageKeys.access);
     if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
 
-    let response = await fetch(input, { ...init, headers });
+    let response = await fetchApiResponse(input, { ...init, headers });
     if (response.status !== 401) return response;
 
     const refreshToken = localStorage.getItem(sessionStorageKeys.refresh);
@@ -59,7 +75,7 @@ export function createApiClient(onSessionRefresh?: (tokens: SessionTokens) => vo
     localStorage.setItem(sessionStorageKeys.refresh, tokens.refreshToken);
     onSessionRefresh?.(tokens);
     headers.set("Authorization", `Bearer ${tokens.accessToken}`);
-    return fetch(input, { ...init, headers });
+    return fetchApiResponse(input, { ...init, headers });
   }
 
   return { request };

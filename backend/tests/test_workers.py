@@ -33,7 +33,7 @@ def test_send_email_task_uses_email_sender(monkeypatch) -> None:
     async def fake_send(_sender, message) -> None:
         dispatched.append(message)
 
-    monkeypatch.setattr(tasks.StructuredLogEmailSender, "send", fake_send)
+    monkeypatch.setattr(tasks.SMTPEmailSender, "send", fake_send)
 
     tasks.send_email.run("person@example.com", "Subject", "Body")
 

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.models.url import URL
@@ -28,12 +28,16 @@ class URLRepository:
         return result.scalars().first()
 
     async def get_by_short_code(self, short_code: str) -> URL | None:
-        result = await self._session.execute(select(URL).where(URL.short_code == short_code))
+        result = await self._session.execute(
+            select(URL).where(URL.short_code == short_code, URL.is_deleted.is_(False))
+        )
         return result.scalars().first()
 
     async def get_by_short_code_for_update(self, short_code: str) -> URL | None:
         result = await self._session.execute(
-            select(URL).where(URL.short_code == short_code).with_for_update()
+            select(URL)
+            .where(URL.short_code == short_code, URL.is_deleted.is_(False))
+            .with_for_update()
         )
         return result.scalars().first()
 
@@ -92,7 +96,10 @@ class URLRepository:
 
     async def is_alias_taken(self, alias: str) -> bool:
         result = await self._session.execute(
-            select(URL.id).where(and_(URL.short_code == alias, URL.is_deleted.is_(False)))
+            select(URL.id).where(
+                URL.short_code == alias,
+                URL.is_deleted.is_(False),
+            )
         )
         return result.scalar_one_or_none() is not None
 

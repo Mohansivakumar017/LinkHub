@@ -31,12 +31,19 @@ class UserRepository:
         result = await self._session.execute(query)
         return result.scalars().first()
 
+    async def list_by_ids(self, user_ids: list[UUID]) -> list[User]:
+        if not user_ids:
+            return []
+        result = await self._session.execute(select(User).where(User.id.in_(user_ids)))
+        return list(result.scalars().all())
+
     async def mark_email_verified(self, user: User) -> None:
         user.is_email_verified = True
         await self._session.flush()
 
     async def update_password(self, user: User, hashed_password: str) -> None:
         user.hashed_password = hashed_password
+        user.auth_version += 1
         await self._session.flush()
 
     async def update_profile(self, user: User, full_name: str | None, avatar_url: str | None) -> None:
@@ -46,6 +53,8 @@ class UserRepository:
 
     async def set_active(self, user: User, is_active: bool) -> None:
         user.is_active = is_active
+        if not is_active:
+            user.auth_version += 1
         await self._session.flush()
 
     async def set_platform_admin(self, user: User, is_platform_admin: bool) -> None:

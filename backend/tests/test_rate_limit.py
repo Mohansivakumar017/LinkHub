@@ -40,6 +40,24 @@ async def test_rate_limit_exceeded_uses_standard_error_envelope(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
+async def test_rate_limit_retry_after_reflects_token_refill_time(monkeypatch) -> None:
+    class Redis:
+        async def eval(self, *args):
+            return [0, 0]
+
+    monkeypatch.setattr(rate_limit_module.settings, "rate_limit_enabled", True)
+    monkeypatch.setattr(rate_limit_module.settings, "rate_limit_paths", "/api/v1/auth/login")
+    monkeypatch.setattr(rate_limit_module.settings, "rate_limit_refill_per_second", 0.25)
+    limiter = rate_limit_module.RedisTokenBucketRateLimitMiddleware(lambda scope: None)
+    limiter._redis = Redis()
+
+    response = await limiter.dispatch(_request(), lambda request: Response("ok"))
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "4"
+
+
+@pytest.mark.asyncio
 async def test_rate_limit_backend_failure_is_explicit(monkeypatch) -> None:
     class Redis:
         async def eval(self, *args):

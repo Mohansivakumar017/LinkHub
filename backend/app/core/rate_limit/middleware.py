@@ -1,4 +1,5 @@
 import logging
+import math
 import time
 
 import redis.asyncio as redis
@@ -48,7 +49,7 @@ class RedisTokenBucketRateLimitMiddleware(BaseHTTPMiddleware):
         now = time.time()
 
         try:
-            allowed, _tokens = await self._redis.eval(
+            allowed, tokens = await self._redis.eval(
                 TOKEN_BUCKET_SCRIPT,
                 1,
                 bucket_key,
@@ -71,6 +72,10 @@ class RedisTokenBucketRateLimitMiddleware(BaseHTTPMiddleware):
             )
         if not allowed:
             RATE_LIMIT_EXCEEDED.labels(request.url.path).inc()
+            retry_after = max(
+                1,
+                math.ceil((1 - float(tokens)) / self._refill_per_second),
+            )
             return JSONResponse(
                 status_code=429,
                 content={
@@ -80,7 +85,7 @@ class RedisTokenBucketRateLimitMiddleware(BaseHTTPMiddleware):
                         "request_id": getattr(request.state, "request_id", "-"),
                     }
                 },
-                headers={"Retry-After": "1"},
+                headers={"Retry-After": str(retry_after)},
             )
 
         return await call_next(request)

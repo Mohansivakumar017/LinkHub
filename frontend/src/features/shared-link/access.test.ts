@@ -15,4 +15,32 @@ describe("shared-link access", () => {
   it("preserves private-link authentication guidance", () => {
     expect(describeSharedLinkFailure(401, "private link requires authentication").kind).toBe("authentication");
   });
+
+  it("explains when a click-limited link is exhausted", () => {
+    expect(describeSharedLinkFailure(410, "click limit reached").message).toContain(
+      "maximum number of opens",
+    );
+  });
+
+  it("explains rate limits and retry timing", () => {
+    expect(describeSharedLinkFailure(429, "rate limit exceeded", "3").message).toBe(
+      "Too many requests to open links. Try again in 3 seconds.",
+    );
+  });
+
+  it("explains when a link has expired", () => {
+    expect(describeSharedLinkFailure(410, "url expired").message).toContain("has expired");
+  });
+
+  it("explains when a one-time link was already used", () => {
+    expect(describeSharedLinkFailure(410, "one-time link already used").message).toContain(
+      "already been opened",
+    );
+  });
+
+  it("explains when the current member cannot access a private link", () => {
+    expect(describeSharedLinkFailure(401, "private link access denied").message).toContain(
+      "not a member",
+    );
+  });
 });

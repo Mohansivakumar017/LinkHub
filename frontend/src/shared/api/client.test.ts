@@ -54,4 +54,16 @@ describe("API client refresh handling", () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(localStorage.getItem(sessionStorageKeys.access)).toBe("new-access");
   });
+
+  it("returns a visible network error response when the API cannot be reached", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    const client = createApiClient();
+
+    const response = await client.request("/unavailable");
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "network_error" },
+    });
+  });
 });

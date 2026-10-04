@@ -10,6 +10,10 @@ from app.infrastructure.db.models.click import Click
 from app.infrastructure.db.models.organization import Organization
 from app.infrastructure.db.models.url import URL
 from app.infrastructure.db.models.user import User
+from app.infrastructure.repositories.api_key_repository import ApiKeyRepository
+from app.infrastructure.repositories.refresh_token_repository import (
+    RefreshTokenRepository,
+)
 from app.infrastructure.repositories.url_repository import URLRepository
 from app.infrastructure.repositories.user_repository import UserRepository
 
@@ -19,6 +23,8 @@ class AdminRepository:
         self._session = session
         self._users = UserRepository(session)
         self._urls = URLRepository(session)
+        self._api_keys = ApiKeyRepository(session)
+        self._refresh_tokens = RefreshTokenRepository(session)
 
     async def list_users(self, offset: int, limit: int) -> tuple[list[User], int]:
         total = await self._session.scalar(select(func.count()).select_from(User))
@@ -112,6 +118,9 @@ class AdminRepository:
 
     async def set_user_active(self, user: User, is_active: bool) -> None:
         await self._users.set_active(user, is_active)
+        if not is_active:
+            await self._api_keys.revoke_all_for_user(UUID(str(user.id)))
+            await self._refresh_tokens.revoke_all_for_user(UUID(str(user.id)))
 
     async def set_user_platform_admin(
         self, user: User, is_platform_admin: bool

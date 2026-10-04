@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.core.dependencies import ApiKeyPrincipal
 from app.main import app
 from app.presentation.api.v1.routers import urls as urls_router_module
 
@@ -93,6 +94,13 @@ class FakeAnalyticsService:
         return {"short_code": short_code, "original_url": "https://example.com"}
 
 
+class UsedOneTimeAnalyticsService(FakeAnalyticsService):
+    async def track_click(self, short_code: str, context, *args, **kwargs):
+        from app.application.services.analytics_service import URLClickLimitReachedError
+
+        raise URLClickLimitReachedError("one-time link already used")
+
+
 async def fake_db_session():
     yield None
 
@@ -128,10 +136,12 @@ def test_urls_router_contract(monkeypatch) -> None:
 
     resolve_res = client.get("/api/v1/urls/resolve/acme")
     assert resolve_res.status_code == 200
+    assert resolve_res.headers["cache-control"] == "private, no-store"
 
     redirect_res = client.get("/api/v1/urls/r/acme", follow_redirects=False)
     assert redirect_res.status_code == 307
     assert redirect_res.headers["location"] == "https://example.com"
+    assert redirect_res.headers["cache-control"] == "private, no-store"
 
     update_res = client.patch(
         f"/api/v1/urls/{url_id}?organization_id={org_id}",
@@ -168,3 +178,190 @@ def test_urls_router_contract(monkeypatch) -> None:
     assert delete_res.status_code == 204
 
     app.dependency_overrides.clear()
+
+
+def test_used_link_responses_are_not_cacheable(monkeypatch) -> None:
+    monkeypatch.setattr(urls_router_module, "AnalyticsService", UsedOneTimeAnalyticsService)
+    app.dependency_overrides[urls_router_module.get_db_session] = fake_db_session
+    client = TestClient(app)
+    try:
+        resolve_res = client.get("/api/v1/urls/resolve/used-link")
+        assert resolve_res.status_code == 410
+        assert resolve_res.headers["cache-control"] == "private, no-store"
+
+        redirect_res = client.get("/api/v1/urls/r/used-link", follow_redirects=False)
+        assert redirect_res.status_code == 410
+        assert redirect_res.headers["cache-control"] == "private, no-store"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_scoped_api_key_cannot_read_another_organization(monkeypatch) -> None:
+    monkeypatch.setattr(urls_router_module, "URLService", FakeURLService)
+    app.dependency_overrides[urls_router_module.get_db_session] = fake_db_session
+    user = type("User", (), {"id": uuid4(), "is_active": True})()
+    scoped_org = uuid4()
+    app.dependency_overrides[urls_router_module.get_api_key_principal] = (
+        lambda: ApiKeyPrincipal(user=user, organization_id=scoped_org)
+    )
+    client = TestClient(app)
+    try:
+        response = client.get(f"/api/v1/urls/api/organizations/{uuid4()}")
+        assert response.status_code == 403
+        assert (
+            response.json()["error"]["message"]
+            == "API key is not scoped to this organization"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_scoped_api_key_can_read_its_organization(monkeypatch) -> None:
+    monkeypatch.setattr(urls_router_module, "URLService", FakeURLService)
+    app.dependency_overrides[urls_router_module.get_db_session] = fake_db_session
+    user = type("User", (), {"id": uuid4(), "is_active": True})()
+    scoped_org = uuid4()
+    app.dependency_overrides[urls_router_module.get_api_key_principal] = (
+        lambda: ApiKeyPrincipal(user=user, organization_id=scoped_org)
+    )
+    client = TestClient(app)
+    try:
+        response = client.get(f"/api/v1/urls/api/organizations/{scoped_org}")
+        assert response.status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_csv_upload_converts_validated_urls_to_strings(monkeypatch) -> None:
+    captured: dict = {}
+
+    class UploadService(FakeURLService):
+        async def bulk_create(self, organization_id, requester_user_id, rows):
+            captured["rows"] = rows
+            return [], []
+
+    monkeypatch.setattr(urls_router_module, "URLService", UploadService)
+    app.dependency_overrides[urls_router_module.get_db_session] = fake_db_session
+    app.dependency_overrides[urls_router_module.get_current_user] = fake_current_user
+    client = TestClient(app)
+    try:
+        response = client.post(
+            f"/api/v1/urls/bulk/upload?organization_id={uuid4()}",
+            files={
+                "file": (
+                    "links.csv",
+                    "original_url,title\nhttps://example.com/products,Products\n",
+                    "text/csv",
+                )
+            },
+        )
+        assert response.status_code == 201
+        assert captured["rows"][0]["original_url"] == "https://example.com/products"
+        assert isinstance(captured["rows"][0]["original_url"], str)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_csv_upload_rejects_oversized_file(monkeypatch) -> None:
+    app.dependency_overrides[urls_router_module.get_db_session] = fake_db_session
+    app.dependency_overrides[urls_router_module.get_current_user] = fake_current_user
+    client = TestClient(app)
+    try:
+        response = client.post(
+            f"/api/v1/urls/bulk/upload?organization_id={uuid4()}",
+            files={
+                "file": (
+                    "oversized.csv",
+                    b"x" * (5 * 1024 * 1024 + 1),
+                    "text/csv",
+                )
+            },
+        )
+        assert response.status_code == 413
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_csv_upload_reports_extra_fields_instead_of_importing_row(monkeypatch) -> None:
+    captured: dict = {}
+
+    class UploadService(FakeURLService):
+        async def bulk_create(self, organization_id, requester_user_id, rows):
+            captured["rows"] = rows
+            return [], []
+
+    monkeypatch.setattr(urls_router_module, "URLService", UploadService)
+    app.dependency_overrides[urls_router_module.get_db_session] = fake_db_session
+    app.dependency_overrides[urls_router_module.get_current_user] = fake_current_user
+    client = TestClient(app)
+    try:
+        response = client.post(
+            f"/api/v1/urls/bulk/upload?organization_id={uuid4()}",
+            files={
+                "file": (
+                    "malformed.csv",
+                    "original_url,title\nhttps://example.com,Product,unexpected\n",
+                    "text/csv",
+                )
+            },
+        )
+        assert response.status_code == 201
+        assert captured["rows"] == []
+        assert response.json()["failed"] == [
+            {
+                "index": 0,
+                "reason": "row contains more fields than the CSV header",
+            }
+        ]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_csv_upload_maps_service_failures_to_original_row_indices(monkeypatch) -> None:
+    class UploadService(FakeURLService):
+        async def bulk_create(self, organization_id, requester_user_id, rows):
+            return [], [type("Failure", (), {"index": 0, "reason": "alias already taken"})()]
+
+    monkeypatch.setattr(urls_router_module, "URLService", UploadService)
+    app.dependency_overrides[urls_router_module.get_db_session] = fake_db_session
+    app.dependency_overrides[urls_router_module.get_current_user] = fake_current_user
+    client = TestClient(app)
+    try:
+        response = client.post(
+            f"/api/v1/urls/bulk/upload?organization_id={uuid4()}",
+            files={
+                "file": (
+                    "row-indices.csv",
+                    "original_url\nnot-a-url\nhttps://example.com\n",
+                    "text/csv",
+                )
+            },
+        )
+        assert response.status_code == 201
+        failures = response.json()["failed"]
+        assert [failure["index"] for failure in failures] == [0, 1]
+        assert "valid URL" in failures[0]["reason"]
+        assert failures[1]["reason"] == "alias already taken"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_csv_upload_rejects_duplicate_headers(monkeypatch) -> None:
+    app.dependency_overrides[urls_router_module.get_db_session] = fake_db_session
+    app.dependency_overrides[urls_router_module.get_current_user] = fake_current_user
+    client = TestClient(app)
+    try:
+        response = client.post(
+            f"/api/v1/urls/bulk/upload?organization_id={uuid4()}",
+            files={
+                "file": (
+                    "duplicate-headers.csv",
+                    "original_url,original_url\nhttps://example.com,https://other.example\n",
+                    "text/csv",
+                )
+            },
+        )
+        assert response.status_code == 400
+        assert "unique" in response.json()["error"]["message"]
+    finally:
+        app.dependency_overrides.clear()

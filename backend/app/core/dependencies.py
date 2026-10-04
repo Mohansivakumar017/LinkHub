@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
@@ -16,6 +17,12 @@ from app.infrastructure.repositories.user_repository import UserRepository
 bearer_scheme = HTTPBearer(auto_error=True)
 optional_bearer_scheme = HTTPBearer(auto_error=False)
 api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=True)
+
+
+@dataclass(frozen=True)
+class ApiKeyPrincipal:
+    user: User
+    organization_id: UUID | None
 
 
 async def get_current_user(
@@ -37,6 +44,11 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="user not found or inactive",
+        )
+    if payload.get("auth_version", 0) != getattr(user, "auth_version", 0):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="access token has been revoked",
         )
     return user
 
@@ -63,6 +75,11 @@ async def get_optional_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="user not found or inactive",
+        )
+    if payload.get("auth_version", 0) != getattr(user, "auth_version", 0):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="access token has been revoked",
         )
     return user
 
@@ -103,3 +120,27 @@ async def get_api_key_user(
         )
     await session.commit()
     return user
+
+
+async def get_api_key_principal(
+    raw_api_key: str = Depends(api_key_scheme),
+    session: AsyncSession = Depends(get_db_session),
+) -> ApiKeyPrincipal:
+    """Authenticate an API key and preserve its optional tenant scope."""
+    api_key = await ApiKeyRepository(session).get_active_by_hash(hash_token(raw_api_key))
+    if api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid API key",
+        )
+    user = await UserRepository(session).get_by_id(api_key.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API key owner is inactive",
+        )
+    await session.commit()
+    return ApiKeyPrincipal(
+        user=user,
+        organization_id=api_key.organization_id,
+    )

@@ -25,6 +25,7 @@ class FakeRepository:
             key_prefix=key_prefix,
             key_hash=key_hash,
             is_active=True,
+            organization_id=None,
         )
         self.items.append(item)
         return item
@@ -107,3 +108,35 @@ async def test_api_key_usage_updates_last_used_and_count() -> None:
     assert item.usage_count == 1
     assert isinstance(item.last_used_at, datetime)
     assert item.last_used_at.tzinfo is None
+
+
+@pytest.mark.asyncio
+async def test_revoke_all_for_user_disables_only_active_keys() -> None:
+    from datetime import datetime
+
+    from app.infrastructure.repositories.api_key_repository import ApiKeyRepository
+
+    class Session:
+        statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+
+        async def flush(self):
+            return None
+
+    user_id = uuid4()
+    session = Session()
+
+    await ApiKeyRepository(session).revoke_all_for_user(user_id)
+
+    assert session.statement is not None
+    compiled = session.statement.compile()
+    assert "api_keys.user_id" in str(compiled)
+    assert "api_keys.is_active" in str(compiled)
+    assert user_id in compiled.params.values()
+    assert False in compiled.params.values()
+    assert any(
+        isinstance(value, datetime) and value.tzinfo is None
+        for value in compiled.params.values()
+    )

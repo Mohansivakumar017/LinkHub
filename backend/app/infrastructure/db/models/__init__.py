@@ -7,6 +7,7 @@ from app.infrastructure.db.models.organization import (
     OrganizationMember,
     OrganizationRole,
 )
+from app.infrastructure.db.models.password_reset_token import PasswordResetToken
 from app.infrastructure.db.models.refresh_token import RefreshToken
 from app.infrastructure.db.models.url import URL
 from app.infrastructure.db.models.user import User
@@ -20,6 +21,7 @@ __all__ = [
     "OrganizationInvite",
     "OrganizationMember",
     "OrganizationRole",
+    "PasswordResetToken",
     "RefreshToken",
     "User",
 ]

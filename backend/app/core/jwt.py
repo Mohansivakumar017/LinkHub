@@ -43,14 +43,6 @@ def create_email_verification_token(subject: str) -> str:
     )
 
 
-def create_password_reset_token(subject: str) -> str:
-    return create_access_token(
-        subject=subject,
-        expires_minutes=settings.reset_password_token_exp_minutes,
-        extra_claims={"type": "reset_password"},
-    )
-
-
 def decode_token_with_type(token: str, expected_type: str) -> dict[str, Any]:
     payload = decode_token(token)
     token_type = payload.get("type")

@@ -49,7 +49,7 @@ PostgreSQL is the durable source of truth for organizations, users, URLs, click 
 SQLAlchemy provides a clean object-relational mapping layer, transaction control, migrations, and type-safe data access models. It is a good fit for a production SaaS that needs scalable, maintainable persistence patterns.
 
 ### Auth: JWT + refresh tokens + bcrypt
-Authentication uses access tokens for short-lived user sessions and refresh tokens for controlled token rotation. Passwords are hashed with bcrypt so the system avoids storing raw credentials. This is a standard pattern for SaaS auth that balances security and operational usability.
+Authentication uses access tokens for short-lived user sessions and refresh tokens for controlled token rotation. Passwords are hashed with bcrypt so the system avoids storing raw credentials. Password-reset links use random opaque tokens stored only as hashes and are single-use. This is a standard pattern for SaaS auth that balances security and operational usability.
 
 ### Cache and rate limiting: Redis
 Redis is used for short-lived data caching, token-bucket rate limiting, and shared operational state. It reduces pressure on PostgreSQL and protects the platform from abusive access patterns.
@@ -267,6 +267,8 @@ This project is structured to be interview-ready and production-minded:
 - Monitoring and health checks.
 - Docker Compose-based deployment workflow.
 - CI automation for lint, tests, build, and smoke validation.
+- Organization-scoped API keys with membership validation and usage tracking.
+- Migration drift checks with strict Alembic metadata validation.
 
 ## Milestone status
 
@@ -283,14 +285,23 @@ The project is being implemented in a production-first sequence:
 9. Monitoring
 10. Deployment
 
-The current implementation includes the production-grade backend, frontend shell, org flows, protected link handling, Redis controls, analytics logic, admin UI, CI flow, and Docker orchestration.
+The current implementation includes the production-grade backend, frontend shell, org flows, protected link handling, Redis controls, analytics logic, admin UI, organization-scoped API keys, CI flow, and Docker orchestration.
 
 ## Operating notes
 
 - Local development runs through Docker Compose.
+- Compose assigns the frontend proxy the fixed address `172.31.240.2`; the API trusts forwarded client-IP headers only from that address. If that subnet conflicts with an existing Docker network, change the public network subnet, frontend address, and API `FORWARDED_ALLOW_IPS` together. For deployments with another reverse proxy in front of the frontend, add only that proxy's verified source address to `FORWARDED_ALLOW_IPS`.
 - Mailpit is used for verification email testing in local and CI smoke flows.
 - Redis is used for rate limiting and cache policy.
+- Platform-admin account deactivation revokes the account's refresh sessions and API keys; reactivation does not restore those credentials.
+- Access tokens carry a per-user authentication version. Password changes/resets and account deactivation invalidate previously issued access tokens immediately, including after account reactivation.
+- Organization admins can invite members but cannot grant the admin role; only organization owners can invite admins or change member roles.
 - Environment variables are configured through backend env files and deployment secrets.
+- For a production Compose deployment, copy `backend/.env.production.example` to `backend/.env.production`, replace every `REPLACE_*` value with generated secrets (`openssl rand -hex 32` produces URL-safe random values), and set the public HTTPS hostname consistently in `PUBLIC_BASE_URL` and `CORS_ORIGINS`. Use the same generated value for `REDIS_PASSWORD` and the Redis DSN password. The Redis DSN uses `redis://` because the Compose Redis service is password-protected on a private Docker network but does not terminate TLS; use `rediss://` only when pointing at a Redis service configured for TLS.
+- Deploy with `docker compose --env-file backend/.env.production -f docker-compose.yml -f docker-compose.production.yml up -d --build`. Compose interpolation uses `--env-file`; the service `env_file` alone does not supply `${...}` values used by Compose.
+- Production publishes only the frontend on `127.0.0.1:8080` for a host TLS reverse proxy and does not publish the API, PostgreSQL, Redis, Prometheus, or Grafana ports. Configure the host proxy to terminate HTTPS and forward to `http://127.0.0.1:8080`, preserve the original `Host`, and set `X-Forwarded-Proto https`; do not expose port 8080 directly to the internet. Keep production secrets out of source control.
+- Before upgrades, take a PostgreSQL backup. The Compose `migrate` service applies migrations before the API, worker, and scheduler start. Verify `https://<hostname>/api/v1/ready`, and inspect `docker compose ... ps` and logs before considering a release healthy.
+- Deleting a link soft-deletes its record and releases its short code for reuse. Existing bookmarks and QR codes continue resolving by code, so they will point to a replacement link if that code is reused. Click history remains attached to the original link record; analytics identifies deleted history separately from an active replacement. If the alias has been reused, an administrator cannot restore the old link until the active replacement releases that alias.
 - The app is designed to grow into a full enterprise SaaS rather than a simple link shortener.
 
 ## Final intent

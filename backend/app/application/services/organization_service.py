@@ -117,6 +117,11 @@ class OrganizationService:
             raise PermissionDeniedError("insufficient privileges for invite")
         if role == OrganizationRole.OWNER:
             raise PermissionDeniedError("owner role cannot be assigned by invitation")
+        if (
+            requester_membership.role == OrganizationRole.ADMIN
+            and role != OrganizationRole.MEMBER
+        ):
+            raise PermissionDeniedError("admins can only invite members")
 
         invite_token = generate_refresh_token()
         invite_hash = hash_token(invite_token)
@@ -152,9 +157,15 @@ class OrganizationService:
         if await self._members.get_membership(organization_id, requester_user_id) is None:
             raise PermissionDeniedError("organization access denied")
         members = await self._members.list_members(organization_id)
+        users_by_id = {
+            user.id: user
+            for user in await self._users.list_by_ids(
+                [member.user_id for member in members]
+            )
+        }
         users = []
         for member in members:
-            user = await self._users.get_by_id(member.user_id)
+            user = users_by_id.get(member.user_id)
             if user is not None:
                 users.append(
                     {

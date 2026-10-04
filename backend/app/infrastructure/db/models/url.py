@@ -9,7 +9,6 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -21,10 +20,18 @@ from app.infrastructure.db.base import Base
 class URL(Base):
     __tablename__ = "urls"
     __table_args__ = (
-        UniqueConstraint("short_code", name="uq_urls_short_code"),
-        UniqueConstraint("custom_alias", name="uq_urls_custom_alias"),
-        Index("ix_urls_short_code", "short_code", unique=True),
-        Index("ix_urls_custom_alias", "custom_alias", unique=True),
+        Index(
+            "ix_urls_short_code",
+            "short_code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+        ),
+        Index(
+            "ix_urls_custom_alias",
+            "custom_alias",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

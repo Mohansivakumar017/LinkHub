@@ -25,6 +25,8 @@ export function AppRouter() {
         <Route path="/auth" element={<AuthPage />} />
         <Route path={appRoutes.sharedLink} element={<SharedLinkPage />} />
         <Route path="/workspace/links" element={<LinksPage />} />
+        <Route path="/workspace/links/create" element={<LinksPage />} />
+        <Route path="/workspace/links/import" element={<LinksPage />} />
         <Route path="/organizations" element={<OrganizationsPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path={appRoutes.profile} element={<ProfilePage />} />

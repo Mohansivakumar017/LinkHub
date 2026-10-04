@@ -23,10 +23,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            client_ip = forwarded_for.split(",", 1)[0].strip()
-        elif request.client:
+        if request.client:
             client_ip = request.client.host
         else:
             client_ip = None

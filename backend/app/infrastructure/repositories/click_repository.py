@@ -84,7 +84,14 @@ class ClickRepository:
     async def get_top_links(self, organization_id: UUID, days: int = 30, limit: int = 10) -> list[dict]:
         since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
         query = (
-            select(URL.id, URL.short_code, URL.original_url, func.count(Click.id).label("count"))
+            select(
+                URL.id,
+                URL.short_code,
+                URL.original_url,
+                URL.title,
+                URL.is_deleted,
+                func.count(Click.id).label("count"),
+            )
             .join(Click, Click.url_id == URL.id)
             .where(Click.organization_id == organization_id, Click.created_at >= since)
             .group_by(URL.id, URL.short_code, URL.original_url)
@@ -97,6 +104,8 @@ class ClickRepository:
                 "url_id": str(row.id),
                 "short_code": row.short_code,
                 "original_url": row.original_url,
+                "title": row.title,
+                "is_deleted": row.is_deleted,
                 "clicks": int(row._mapping["count"]),
             }
             for row in result.all()

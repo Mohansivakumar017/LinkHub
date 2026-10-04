@@ -12,7 +12,7 @@ from app.application.services.auth_service import (
     InvalidVerificationTokenError,
     UserAlreadyExistsError,
 )
-from app.core.jwt import create_email_verification_token, create_password_reset_token
+from app.core.jwt import create_email_verification_token
 from app.core.security import hash_password, hash_token
 
 
@@ -44,6 +44,8 @@ class FakeUserRepo:
             hashed_password=hashed_password,
             full_name=full_name,
             is_email_verified=False,
+            is_active=True,
+            auth_version=0,
         )
         self.users_by_email[email] = user
         return user
@@ -53,6 +55,7 @@ class FakeUserRepo:
 
     async def update_password(self, user, hashed_password: str):
         user.hashed_password = hashed_password
+        user.auth_version += 1
 
 
 class FakeRefreshRepo:
@@ -85,6 +88,27 @@ class FakeRefreshRepo:
         for token in self.tokens_by_hash.values():
             if token.user_id == user_id:
                 token.revoked = True
+
+
+class FakePasswordResetTokenRepo:
+    def __init__(self) -> None:
+        self.tokens_by_hash: dict[str, SimpleNamespace] = {}
+
+    async def create(self, user_id, token_hash: str, expires_at: datetime):
+        token = SimpleNamespace(
+            user_id=user_id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            consumed_at=None,
+        )
+        self.tokens_by_hash[token_hash] = token
+        return token
+
+    async def get_by_hash(self, token_hash: str):
+        return self.tokens_by_hash.get(token_hash)
+
+    async def mark_consumed(self, token, consumed_at: datetime):
+        token.consumed_at = consumed_at
 
 
 class FakeEmailSender:
@@ -143,6 +167,27 @@ async def test_authenticate_and_invalid_credentials() -> None:
 
     with pytest.raises(InvalidCredentialsError):
         await service.authenticate("user@example.com", "wrong-pass")
+
+
+@pytest.mark.asyncio
+async def test_inactive_user_cannot_login() -> None:
+    user_repo = FakeUserRepo()
+    user = await user_repo.create(
+        email="inactive@example.com",
+        hashed_password=hash_password("StrongPass123!"),
+    )
+    user.is_active = False
+    await user_repo.mark_email_verified(user)
+    service = AuthService(
+        session=FakeSession(),
+        user_repo=user_repo,
+        refresh_token_repo=FakeRefreshRepo(),
+        password_reset_token_repo=FakePasswordResetTokenRepo(),
+        email_sender=FakeEmailSender(),
+    )
+
+    with pytest.raises(InvalidCredentialsError, match="invalid credentials"):
+        await service.authenticate("inactive@example.com", "StrongPass123!")
 
 
 @pytest.mark.asyncio
@@ -222,11 +267,13 @@ async def test_password_reset_flow() -> None:
     session = FakeSession()
     user_repo = FakeUserRepo()
     refresh_repo = FakeRefreshRepo()
+    reset_token_repo = FakePasswordResetTokenRepo()
     email_sender = FakeEmailSender()
     service = AuthService(
         session=session,
         user_repo=user_repo,
         refresh_token_repo=refresh_repo,
+        password_reset_token_repo=reset_token_repo,
         email_sender=email_sender,
     )
 
@@ -234,11 +281,49 @@ async def test_password_reset_flow() -> None:
         email="user@example.com",
         hashed_password=hash_password("StrongPass123!"),
     )
-    token = create_password_reset_token(subject=str(user.id))
+    await service.request_password_reset(user.email)
+    assert len(email_sender.sent_messages) == 1
+    token = email_sender.sent_messages[0].body.rsplit(" ", 1)[-1]
+    token_hash = hash_token(token)
+    stored_token = reset_token_repo.tokens_by_hash[token_hash]
+    assert stored_token.user_id == user.id
+    assert stored_token.expires_at > datetime.now(UTC).replace(tzinfo=None)
 
     old_password_hash = user.hashed_password
     await service.reset_password(token, "NewStrongPass123!")
     assert user.hashed_password != old_password_hash
+    assert stored_token.consumed_at is not None
 
-    with pytest.raises(InvalidVerificationTokenError):
+    with pytest.raises(InvalidVerificationTokenError, match="invalid reset token"):
+        await service.reset_password(token, "AnotherStrongPass123!")
+
+    with pytest.raises(InvalidVerificationTokenError, match="invalid reset token"):
         await service.reset_password("bad-token", "AnyStrongPass123!")
+    assert session.commit_count == 2
+
+
+@pytest.mark.asyncio
+async def test_expired_password_reset_token_is_rejected() -> None:
+    session = FakeSession()
+    user_repo = FakeUserRepo()
+    reset_token_repo = FakePasswordResetTokenRepo()
+    user = await user_repo.create(
+        email="expired@example.com",
+        hashed_password=hash_password("StrongPass123!"),
+    )
+    token = "expired-reset-token"
+    await reset_token_repo.create(
+        user.id,
+        hash_token(token),
+        datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1),
+    )
+    service = AuthService(
+        session=session,
+        user_repo=user_repo,
+        refresh_token_repo=FakeRefreshRepo(),
+        password_reset_token_repo=reset_token_repo,
+        email_sender=FakeEmailSender(),
+    )
+
+    with pytest.raises(InvalidVerificationTokenError, match="invalid reset token"):
+        await service.reset_password(token, "NewStrongPass123!")

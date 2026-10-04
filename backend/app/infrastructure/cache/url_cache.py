@@ -29,7 +29,7 @@ class RedisURLCache:
 
     @staticmethod
     def _key(short_code: str) -> str:
-        return f"url:resolve:{short_code}"
+        return f"url:resolve:v2:{short_code}"
 
     async def get(self, short_code: str) -> dict | None:
         if not settings.redis_cache_enabled:

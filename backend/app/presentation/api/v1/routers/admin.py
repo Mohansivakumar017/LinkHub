@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_platform_admin
@@ -185,7 +186,14 @@ async def restore_link(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="link is not deleted",
         )
-    await repo.restore_url(target)
+    try:
+        await repo.restore_url(target)
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="link alias is now in use; keep this link deleted or remove the newer link before restoring it",
+        ) from exc
     await repo.record_audit(
         current_user.id,
         "admin.link.restored",

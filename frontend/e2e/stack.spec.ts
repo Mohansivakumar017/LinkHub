@@ -18,15 +18,19 @@ test("shared-link entry route renders the access screen", async ({ page }) => {
   await expect(page.getByText("acceptance-test")).toBeVisible();
 });
 
-test("authentication entry supports registration and recovery modes", async ({ page }) => {
+test("authentication entry reports registration and recovery outcomes", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page.getByRole("heading", { name: "Create your workspace" })).toBeVisible();
   await expect(page.getByLabel("Full name")).toBeVisible();
+  await page.getByLabel("Email address").fill(`browser-register-${Date.now()}@example.com`);
+  await page.getByLabel("Full name").fill("Browser Registration");
+  await page.locator('input[autocomplete="new-password"]').fill("StrongPass123!");
+  await page.getByRole("button", { name: "Create workspace" }).click();
+  await expect(page.getByRole("status")).toHaveText("Account created. Check your email to verify it, then sign in.");
 
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.getByRole("button", { name: "Forgot password?" }).click();
   await expect(page.getByRole("heading", { name: "Account recovery" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send recovery email" })).toBeVisible();
@@ -175,13 +179,99 @@ test("authenticated user can verify, create an organization, and rotate an API k
   await page.goto("/workspace/links");
   await page.locator(".organization-picker select").selectOption(organizationId);
   await page.getByRole("button", { name: "Load links" }).click();
+  await page.getByRole("navigation", { name: "Link management" }).getByRole("link", { name: "Import CSV" }).click();
+  await page.getByLabel("CSV content")
+    .fill("original_url,title\nhttps://example.com/acceptance-import,Imported link");
+  await page.getByRole("button", { name: "Import pasted links" }).click();
+  await expect(page.getByRole("status")).toContainText("Imported 1 links.");
+
+  const reusedAliasCode = `reuse-${Date.now()}`;
+  const oldAlias = await request.post("/api/v1/urls", {
+    headers,
+    data: {
+      organization_id: organizationId,
+      original_url: "https://example.com/old-alias",
+      custom_alias: reusedAliasCode,
+      title: "Old alias",
+      one_time: true,
+    },
+  });
+  expect(oldAlias.status()).toBe(201);
+  const firstOldAliasOpen = await page.evaluate(async (shortCode) => {
+    const response = await fetch(`/api/v1/urls/resolve/${shortCode}`);
+    return response.status;
+  }, reusedAliasCode);
+  expect(firstOldAliasOpen).toBe(200);
+  const secondOldAliasOpen = await page.evaluate(async (shortCode) => {
+    const response = await fetch(`/api/v1/urls/resolve/${shortCode}`);
+    return response.status;
+  }, reusedAliasCode);
+  expect(secondOldAliasOpen).toBe(410);
+  await page.getByLabel("CSV content")
+    .fill(`original_url,custom_alias\nhttps://example.com/conflict,${reusedAliasCode}`);
+  await page.getByRole("button", { name: "Import pasted links" }).click();
+  await expect(page.getByRole("alert")).toContainText("already in use by an active link");
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect.poll(async () => {
+    const bounds = await page.getByRole("alert").boundingBox();
+    return bounds?.y;
+  }).toBeGreaterThanOrEqual(0);
+  expect((await page.getByRole("alert").boundingBox())?.y).toBeLessThan(80);
+  await page.getByRole("button", { name: "Dismiss notification" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  await page.getByRole("navigation", { name: "Link management" }).getByRole("link", { name: "Manage links" }).click();
+  await page.getByRole("button", { name: "Load links" }).click();
+  const oldAliasRow = page.locator(".link-row").filter({ hasText: "Old alias" });
+  await expect(oldAliasRow).toBeVisible();
+  await oldAliasRow.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByRole("dialog")).toContainText("existing bookmarks and QR codes");
+  await page.getByRole("dialog").getByRole("button", { name: "Delete link" }).click();
+  await expect(oldAliasRow).toHaveCount(0);
+
+  await page.getByRole("navigation", { name: "Link management" }).getByRole("link", { name: "Import CSV" }).click();
+  await page.getByLabel("CSV content")
+    .fill(`original_url,custom_alias,one_time\nhttps://example.com/new-link,${reusedAliasCode},true`);
+  await page.getByRole("button", { name: "Import pasted links" }).click();
+  await expect(page.getByRole("status")).toContainText("Imported 1 links.");
+  const sharedPage = await page.context().newPage();
+  await sharedPage.route("https://example.com/new-link", (route) =>
+    route.fulfill({ status: 200, body: "Replacement destination" }),
+  );
+  await sharedPage.goto(`/?link=${reusedAliasCode}`);
+  await expect(sharedPage).toHaveURL("https://example.com/new-link");
+  await sharedPage.close();
+  const aliasHistory = await request.get(
+    `/api/v1/analytics/organizations/${organizationId}/top-links?days=30&limit=100`,
+    { headers },
+  );
+  expect(aliasHistory.status()).toBe(200);
+  const aliasHistoryRows = (await aliasHistory.json() as Array<{
+    short_code: string;
+    is_deleted: boolean;
+    clicks: number;
+  }>).filter((row) => row.short_code === reusedAliasCode);
+  expect(aliasHistoryRows).toHaveLength(2);
+  expect(aliasHistoryRows).toEqual(expect.arrayContaining([
+    expect.objectContaining({ is_deleted: true, clicks: 1 }),
+    expect.objectContaining({ is_deleted: false, clicks: 1 }),
+  ]));
+  await page.getByRole("link", { name: /Analytics/ }).click();
+  await expect(page.getByText("Deleted link history")).toBeVisible();
+  await expect(
+    page.locator(".analytics-grid article").nth(1).locator(".admin-row")
+      .filter({ hasText: reusedAliasCode }),
+  ).toHaveCount(2);
+  await page.getByRole("link", { name: /Links/ }).click();
+  await page.getByRole("navigation", { name: "Link management" }).getByRole("link", { name: "Manage links" }).click();
+  await page.getByRole("button", { name: "Load links" }).click();
   const protectedLinkRow = page.locator(".link-row").filter({ hasText: "Acceptance protected link" });
   await expect(protectedLinkRow).toBeVisible();
   await protectedLinkRow.getByRole("button", { name: "Open" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("dialog").getByLabel("Link password").fill("WrongPass123!");
   await page.getByRole("dialog").getByRole("button", { name: "Open link" }).click();
-  await expect(page.getByRole("dialog").getByRole("alert")).toHaveText("invalid link password");
+  await expect(page.getByRole("dialog").getByRole("alert")).toHaveText("That password is incorrect. Try again.");
   await page.getByRole("dialog").getByLabel("Link password").fill("LinkPass123!");
   const destinationPagePromise = page.waitForEvent("popup");
   await page.getByRole("dialog").getByRole("button", { name: "Open link" }).click();
@@ -189,6 +279,31 @@ test("authenticated user can verify, create an organization, and rotate an API k
   await expect(destinationPage).toHaveURL("https://example.com/acceptance-protected");
   await expect(page.getByRole("heading", { name: "Link workspace", level: 1 })).toBeVisible();
   await destinationPage.close();
+
+  const limitedLinkResponse = await request.post("/api/v1/urls", {
+    headers,
+    data: {
+      organization_id: organizationId,
+      original_url: "https://example.com/acceptance-click-limited",
+      title: "Acceptance click-limited link",
+      click_limit: 1,
+    },
+  });
+  expect(limitedLinkResponse.status()).toBe(201);
+  await page.getByRole("button", { name: "Load links" }).click();
+  const limitedLinkRow = page.locator(".link-row").filter({ hasText: "Acceptance click-limited link" });
+  await expect(limitedLinkRow).toBeVisible();
+  const allowedOpen = page.waitForEvent("popup");
+  const firstResolve = page.waitForResponse(response => response.url().includes("/urls/resolve/"));
+  await limitedLinkRow.getByRole("button", { name: "Open" }).click();
+  expect((await firstResolve).status()).toBe(200);
+  const firstVisit = await allowedOpen;
+  await expect(firstVisit).toHaveURL("https://example.com/acceptance-click-limited");
+  await firstVisit.close();
+  const limitedResolve = page.waitForResponse(response => response.url().includes("/urls/resolve/"));
+  await limitedLinkRow.getByRole("button", { name: "Open" }).click();
+  expect((await limitedResolve).status()).toBe(410);
+  await expect(page.getByRole("alert")).toContainText("maximum number of opens");
 
   const createdKey = await request.post("/api/v1/api-keys", {
     headers,

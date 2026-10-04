@@ -21,6 +21,7 @@ class ApiKey(Base):
     __tablename__ = "api_keys"
     __table_args__ = (
         Index("ix_api_keys_user_id", "user_id"),
+        Index("ix_api_keys_organization_id", "organization_id"),
         Index("ix_api_keys_key_hash", "key_hash", unique=True),
         UniqueConstraint("key_hash", name="uq_api_keys_key_hash"),
     )
@@ -28,6 +29,11 @@ class ApiKey(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=True,
     )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)

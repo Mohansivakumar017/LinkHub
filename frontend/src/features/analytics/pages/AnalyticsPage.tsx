@@ -3,18 +3,19 @@ import { apiBaseUrl } from "../../../shared/api/client";
 import { useSession } from "../../../shared/session/SessionProvider";
 import { useSelectedOrganization } from "../../../shared/session/organization";
 import { WorkspaceLayout } from "../../workspace/WorkspaceLayout";
+import { readApiErrorMessage } from "../../../shared/api/errors";
+import { WorkspaceFeedback } from "../../../shared/components/WorkspaceFeedback";
 
 type Org = { id: string; name: string };
 type Row = { bucket?: string; value?: string; count: number };
-type TopLink = { short_code: string; title?: string | null; clicks: number };
-
-async function errorMessage(response: Response, fallback: string) {
-  const body = await response.json().catch(() => ({})) as {
-    detail?: string;
-    error?: { message?: string };
-  };
-  return body.error?.message ?? body.detail ?? fallback;
-}
+type TopLink = {
+  url_id: string;
+  short_code: string;
+  original_url: string;
+  title?: string | null;
+  is_deleted: boolean;
+  clicks: number;
+};
 
 export function AnalyticsPage() {
   const { api } = useSession();
@@ -36,6 +37,7 @@ export function AnalyticsPage() {
   useEffect(() => {
     void api.request(`${apiBaseUrl}/organizations`).then(async (response) => {
       if (response.ok) setOrgs(await response.json() as Org[]);
+      else setError(await readApiErrorMessage(response, "Could not load organizations."));
     });
   }, [api]);
 
@@ -54,13 +56,13 @@ export function AnalyticsPage() {
       ]);
     const failures: string[] = [];
     if (overviewResponse.ok) setOverview(await overviewResponse.json());
-    else failures.push(await errorMessage(overviewResponse, "overview"));
+    else failures.push(await readApiErrorMessage(overviewResponse, "overview"));
     if (seriesResponse.ok) setSeries(await seriesResponse.json());
-    else failures.push(await errorMessage(seriesResponse, "timeseries"));
+    else failures.push(await readApiErrorMessage(seriesResponse, "daily click history"));
     if (topResponse.ok) setTopLinks(await topResponse.json());
-    else failures.push(await errorMessage(topResponse, "top links"));
+    else failures.push(await readApiErrorMessage(topResponse, "top links"));
     if (breakdownResponse.ok) setBreakdown(await breakdownResponse.json());
-    else failures.push(await errorMessage(breakdownResponse, "breakdown"));
+    else failures.push(await readApiErrorMessage(breakdownResponse, "traffic breakdown"));
     if (failures.length) setError(`Could not load ${failures.join(", ")}.`);
     setLoading(false);
   }
@@ -100,7 +102,7 @@ export function AnalyticsPage() {
           {loading ? "Loading…" : "Refresh analytics"}
         </button>
       </section>
-      {error && <p className="auth-error" role="alert">{error}</p>}
+      {error && <WorkspaceFeedback kind="error" message={error} onDismiss={() => setError("")} />}
       {!org && <section className="card empty-state"><h2>Select an organization</h2><p className="muted">Choose an organization to view its click performance.</p></section>}
       {org && loading && <section className="card"><p className="muted">Loading analytics…</p></section>}
       {overview && <section className="stats-grid">
@@ -114,7 +116,7 @@ export function AnalyticsPage() {
         </article>
         <article className="card">
           <h2>Top links</h2>
-          {!loading && !topLinks.length ? <p className="muted">No top links for this period.</p> : topLinks.map((link) => <div className="admin-row" key={link.short_code}><span>{link.title || link.short_code}</span><strong>{link.clicks}</strong></div>)}
+          {!loading && !topLinks.length ? <p className="muted">No top links for this period.</p> : topLinks.map((link) => <div className="admin-row" key={link.url_id}><span><strong>{link.title || link.short_code}</strong><small>{link.short_code}{link.is_deleted ? " · Deleted link history" : ""} · {link.original_url}</small></span><strong>{link.clicks}</strong></div>)}
         </article>
         <article className="card">
           <h2>{dimension}</h2>

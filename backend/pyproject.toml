@@ -24,6 +24,7 @@ dependencies = [
   "PyJWT>=2.7,<3.0",
   "email-validator>=2.2,<3.0",
   "prometheus-client>=0.20,<1.0",
+  "Pillow>=10.0,<13.0",
   "qrcode[pil]>=7.4,<8.0",
   "python-multipart>=0.0.9,<1.0",
 ]

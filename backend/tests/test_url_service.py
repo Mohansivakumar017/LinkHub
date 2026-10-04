@@ -4,7 +4,10 @@ from uuid import uuid4
 
 import pytest
 
-from app.application.services.url_service import URLNotFoundError, URLService
+from app.application.services.url_service import (
+    URLNotFoundError,
+    URLService,
+)
 
 
 class FakeSession:
@@ -55,7 +58,9 @@ class FakeURLRepo:
         return count
 
     async def is_alias_taken(self, alias: str):
-        return any(i.short_code == alias and not i.is_deleted for i in self.items.values())
+        return any(
+            i.short_code == alias and not i.is_deleted for i in self.items.values()
+        )
 
 
 class FakeCache:
@@ -143,6 +148,46 @@ async def test_not_found_raises() -> None:
     service = URLService(session=session, url_repo=repo, membership_repo=FakeMemberRepo(True), cache=FakeCache())
     with pytest.raises(URLNotFoundError):
         await service.delete_url(uuid4(), uuid4(), uuid4())
+
+
+@pytest.mark.asyncio
+async def test_soft_deleted_alias_can_be_reused() -> None:
+    session = FakeSession()
+    repo = FakeURLRepo()
+    cache = FakeCache()
+    service = URLService(
+        session=session,
+        url_repo=repo,
+        membership_repo=FakeMemberRepo(True),
+        cache=cache,
+    )
+    organization_id = uuid4()
+    user_id = uuid4()
+    original = await service.create_url(
+        organization_id=organization_id,
+        owner_user_id=user_id,
+        original_url="https://example.com/old",
+        custom_alias="campaign-link",
+    )
+    await service.delete_url(organization_id, user_id, original.id)
+    cache.items["campaign-link"] = {
+        "id": str(original.id),
+        "short_code": "campaign-link",
+        "one_time": True,
+        "click_limit": 1,
+        "cacheable": True,
+    }
+
+    replacement = await service.create_url(
+        organization_id=organization_id,
+        owner_user_id=user_id,
+        original_url="https://example.com/new",
+        custom_alias="campaign-link",
+        one_time=True,
+    )
+    assert replacement.short_code == "campaign-link"
+    assert original.is_deleted is True
+    assert "campaign-link" not in cache.items
 
 
 @pytest.mark.asyncio

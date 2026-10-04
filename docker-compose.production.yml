@@ -1,11 +1,16 @@
 services:
   frontend:
+    ports: !override
+      - "127.0.0.1:8080:8080"
     env_file:
-      - ./backend/.env.production
+      - path: ./backend/.env.production
+        required: false
 
   api:
+    ports: !reset []
     env_file:
-      - ./backend/.env.production
+      - path: ./backend/.env.production
+        required: false
     environment:
       ENVIRONMENT: production
       DEBUG: "false"
@@ -15,14 +20,16 @@ services:
 
   migrate:
     env_file:
-      - ./backend/.env.production
+      - path: ./backend/.env.production
+        required: false
     environment:
       ENVIRONMENT: production
       DEBUG: "false"
 
   worker:
     env_file:
-      - ./backend/.env.production
+      - path: ./backend/.env.production
+        required: false
     environment:
       ENVIRONMENT: production
       DEBUG: "false"
@@ -31,7 +38,8 @@ services:
 
   beat:
     env_file:
-      - ./backend/.env.production
+      - path: ./backend/.env.production
+        required: false
     environment:
       ENVIRONMENT: production
       DEBUG: "false"

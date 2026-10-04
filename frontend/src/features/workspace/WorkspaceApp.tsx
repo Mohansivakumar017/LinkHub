@@ -1,23 +1,17 @@
 import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { apiBaseUrl } from "../../shared/api/client";
 import { useSession } from "../../shared/session/SessionProvider";
+import { readApiErrorMessage } from "../../shared/api/errors";
 
 type AuthMode = "login" | "register" | "recover" | "reset" | "verify";
-
-function responseMessage(body: unknown, fallback: string) {
-  if (typeof body === "object" && body !== null) {
-    const value = body as { detail?: string; error?: { message?: string } };
-    return value.error?.message ?? value.detail ?? fallback;
-  }
-  return fallback;
-}
 
 export type WorkspaceView = "auth" | "shared";
 
 export function WorkspaceApp() {
   const { setTokens } = useSession();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -25,7 +19,10 @@ export function WorkspaceApp() {
   const [mode, setMode] = useState<AuthMode>("login");
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => {
+    const state = location.state as { signOutWarning?: string } | null;
+    return state?.signOutWarning ?? "";
+  });
   const [canResendVerification, setCanResendVerification] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -57,10 +54,10 @@ export function WorkspaceApp() {
           body: JSON.stringify({ token }),
         });
         if (response.ok) {
-          setMessage("Your email is verified. You can sign in now.");
           changeMode("login");
+          setMessage("Your email is verified. You can sign in now.");
         } else {
-          setError(responseMessage(await response.json(), "That verification token is invalid or expired."));
+          setError(await readApiErrorMessage(response, "That verification token is invalid or expired."));
         }
         return;
       }
@@ -72,10 +69,10 @@ export function WorkspaceApp() {
           body: JSON.stringify({ token, new_password: password }),
         });
         if (response.ok) {
-          setMessage("Password reset successfully. Sign in with your new password.");
           changeMode("login");
+          setMessage("Password reset successfully. Sign in with your new password.");
         } else {
-          setError(responseMessage(await response.json(), "That reset token is invalid or expired."));
+          setError(await readApiErrorMessage(response, "That reset token is invalid or expired."));
         }
         return;
       }
@@ -89,7 +86,7 @@ export function WorkspaceApp() {
         if (response.ok) {
           setMessage("If an account exists for that email, a reset link has been sent.");
         } else {
-          setError(responseMessage(await response.json(), "We could not request a reset link."));
+          setError(await readApiErrorMessage(response, "We could not request a reset link."));
         }
         return;
       }
@@ -105,14 +102,14 @@ export function WorkspaceApp() {
           setError("Verify your email before signing in.");
           setCanResendVerification(true);
         } else {
-          setError(responseMessage(body, "We could not sign you in."));
+          setError(await readApiErrorMessage(response, "We could not sign you in."));
         }
         return;
       }
 
       if (isRegister) {
-        setMessage("Account created. Check your email to verify it, then sign in.");
         changeMode("login");
+        setMessage("Account created. Check your email to verify it, then sign in.");
         return;
       }
 
@@ -129,13 +126,25 @@ export function WorkspaceApp() {
 
   async function resendVerification() {
     setError("");
-    const response = await fetch(`${apiBaseUrl}/auth/resend-verification`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
     setCanResendVerification(false);
-    setMessage(response.ok ? "Verification email sent. Check your inbox." : responseMessage(await response.json().catch(() => ({})), "We could not resend the verification email."));
+    try {
+      const response = await fetch(`${apiBaseUrl}/auth/resend-verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (response.ok) {
+        setMessage("Verification email sent. Check your inbox.");
+      } else {
+        setMessage("");
+        setError(await readApiErrorMessage(response, "We could not resend the verification email."));
+        setCanResendVerification(true);
+      }
+    } catch {
+      setMessage("");
+      setError("Could not reach LinkHub. Check your connection and try again.");
+      setCanResendVerification(true);
+    }
   }
 
   const title = isRegister ? "Create your workspace" : isLogin ? "Welcome back" : "Account recovery";

@@ -1,7 +1,10 @@
+import warnings
+from io import BytesIO
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,10 +21,10 @@ from app.infrastructure.repositories.user_repository import UserRepository
 router = APIRouter(prefix="/users", tags=["users"])
 MAX_AVATAR_BYTES = 5 * 1024 * 1024
 ALLOWED_AVATAR_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
-AVATAR_SIGNATURES = {
-    "image/jpeg": (b"\xff\xd8\xff",),
-    "image/png": (b"\x89PNG\r\n\x1a\n",),
-    "image/webp": (b"RIFF",),
+AVATAR_FORMATS = {
+    "image/jpeg": "JPEG",
+    "image/png": "PNG",
+    "image/webp": "WEBP",
 }
 
 
@@ -95,8 +98,24 @@ async def upload_avatar(
     content = await file.read(MAX_AVATAR_BYTES + 1)
     if len(content) > MAX_AVATAR_BYTES:
         raise HTTPException(status_code=413, detail="avatar exceeds 5 MiB limit")
-    if not any(content.startswith(signature) for signature in AVATAR_SIGNATURES[file.content_type or ""]):
-        raise HTTPException(status_code=415, detail="avatar content does not match image type")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(content)) as image:
+                if image.format != AVATAR_FORMATS[file.content_type or ""]:
+                    raise ValueError("avatar format does not match content type")
+                image.verify()
+    except (
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        OSError,
+        SyntaxError,
+        ValueError,
+        UnidentifiedImageError,
+    ) as exc:
+        raise HTTPException(
+            status_code=415, detail="avatar content does not match image type"
+        ) from exc
 
     settings = get_settings()
     avatar_dir = Path(settings.media_dir) / "avatars"

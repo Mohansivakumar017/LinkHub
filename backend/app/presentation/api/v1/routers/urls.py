@@ -32,7 +32,8 @@ from app.application.services.url_service import (
 )
 from app.core.config import get_settings
 from app.core.dependencies import (
-    get_api_key_user,
+    ApiKeyPrincipal,
+    get_api_key_principal,
     get_current_user,
     get_optional_current_user,
 )
@@ -40,6 +41,15 @@ from app.infrastructure.db.models.user import User
 from app.infrastructure.db.session import get_db_session
 
 router = APIRouter(prefix="/urls", tags=["urls"])
+_LINK_RESPONSE_HEADERS = {"Cache-Control": "private, no-store"}
+
+
+def _link_access_error(status_code: int, detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail=detail,
+        headers=_LINK_RESPONSE_HEADERS,
+    )
 
 
 class URLCreateRequest(BaseModel):
@@ -160,13 +170,21 @@ async def list_urls_with_api_key(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
     session: AsyncSession = Depends(get_db_session),
-    api_user: User = Depends(get_api_key_user),
+    api_principal: ApiKeyPrincipal = Depends(get_api_key_principal),
 ) -> list[dict]:
     """List organization links for service integrations authenticated by X-API-Key."""
+    if (
+        api_principal.organization_id is not None
+        and api_principal.organization_id != organization_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API key is not scoped to this organization",
+        )
     try:
         items = await URLService(session).list_urls(
             organization_id,
-            api_user.id,
+            api_principal.user.id,
             search=search,
             offset=offset,
             limit=limit,
@@ -180,6 +198,7 @@ async def list_urls_with_api_key(
 async def resolve_short_code(
     short_code: str,
     request: Request,
+    response: Response,
     password: str | None = Query(default=None, min_length=1, max_length=128),
     session: AsyncSession = Depends(get_db_session),
     current_user: User | None = Depends(get_optional_current_user),
@@ -189,7 +208,7 @@ async def resolve_short_code(
         track_kwargs = (
             {"requester_user_id": current_user.id} if current_user else {}
         )
-        return await service.track_click(
+        result = await service.track_click(
             short_code=short_code,
             context=ClickContext(
                 ip_address=request.client.host if request.client else None,
@@ -202,11 +221,13 @@ async def resolve_short_code(
             **track_kwargs,
         )
     except URLAccessDeniedError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        raise _link_access_error(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
     except (URLExpiredError, URLClickLimitReachedError) as exc:
-        raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(exc)) from exc
+        raise _link_access_error(status.HTTP_410_GONE, str(exc)) from exc
     except URLNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise _link_access_error(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    response.headers.update(_LINK_RESPONSE_HEADERS)
+    return result
 
 
 @router.get("/r/{short_code}", include_in_schema=False)
@@ -236,14 +257,15 @@ async def redirect_short_code(
             **track_kwargs,
         )
     except URLAccessDeniedError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        raise _link_access_error(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
     except (URLExpiredError, URLClickLimitReachedError) as exc:
-        raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(exc)) from exc
+        raise _link_access_error(status.HTTP_410_GONE, str(exc)) from exc
     except URLNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise _link_access_error(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     return RedirectResponse(
         url=result["original_url"],
         status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        headers=_LINK_RESPONSE_HEADERS,
     )
 
 
@@ -403,24 +425,43 @@ async def bulk_upload_urls(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Import up to 1,000 links from a CSV with an original_url column."""
-    content = await file.read()
-    if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="CSV file too large")
+    max_file_bytes = 5 * 1024 * 1024
+    content = await file.read(max_file_bytes + 1)
+    if len(content) > max_file_bytes:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="CSV file too large")
     try:
         decoded = content.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV must be UTF-8 encoded") from exc
 
-    reader = csv.DictReader(StringIO(decoded))
-    if not reader.fieldnames or "original_url" not in reader.fieldnames:
+    reader = csv.DictReader(StringIO(decoded), strict=True)
+    try:
+        fieldnames = reader.fieldnames
+    except csv.Error as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV format is invalid") from exc
+    if not fieldnames or "original_url" not in fieldnames:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV requires an original_url column")
+    if any(not name.strip() for name in fieldnames) or len(set(fieldnames)) != len(fieldnames):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV headers must be non-empty and unique")
 
     rows: list[dict] = []
+    row_indices: list[int] = []
     failures: list[dict[str, int | str]] = []
-    for index, raw_row in enumerate(reader):
+    index = 0
+    while True:
+        try:
+            raw_row = next(reader)
+        except StopIteration:
+            break
+        except csv.Error as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV format is invalid") from exc
         if index >= 1000:
             failures.append({"index": index, "reason": "maximum 1,000 rows exceeded"})
             break
+        if None in raw_row:
+            failures.append({"index": index, "reason": "row contains more fields than the CSV header"})
+            index += 1
+            continue
         try:
             payload = URLCreateRequest.model_validate(
                 {
@@ -437,18 +478,29 @@ async def bulk_upload_urls(
                     "is_private": _csv_bool(raw_row.get("is_private")),
                 }
             )
-            rows.append(payload.model_dump())
+            row = payload.model_dump()
+            row["original_url"] = str(payload.original_url)
+            rows.append(row)
+            row_indices.append(index)
         except (TypeError, ValueError) as exc:
             failures.append({"index": index, "reason": str(exc)})
+        index += 1
 
     service = URLService(session)
     try:
         created, failed = await service.bulk_create(organization_id, current_user.id, rows)
     except URLPermissionDeniedError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    failures.extend(
+        {
+            "index": row_indices[f.index],
+            "reason": f.reason,
+        }
+        for f in failed
+    )
     return {
         "created": [_to_response(item) for item in created],
-        "failed": failures + [{"index": f.index, "reason": f.reason} for f in failed],
+        "failed": failures,
     }
 
 

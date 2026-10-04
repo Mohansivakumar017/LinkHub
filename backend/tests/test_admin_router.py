@@ -23,6 +23,8 @@ class FakeAdminRepository:
     def __init__(self, session) -> None:
         self._session = session
         self.audit_calls: list[tuple] = []
+        self.revoked_refresh_tokens: list[UUID] = []
+        self.revoked_api_keys: list[UUID] = []
 
     def _new_user(self, user_id: UUID, email: str = "admin@example.com",
                   is_platform_admin: bool = True) -> User:
@@ -110,6 +112,10 @@ class FakeAdminRepository:
 
     async def set_user_active(self, user: User, is_active: bool) -> None:
         user.is_active = is_active
+        if not is_active:
+            user.auth_version = (getattr(user, "auth_version", None) or 0) + 1
+            self.revoked_api_keys.append(UUID(str(user.id)))
+            self.revoked_refresh_tokens.append(UUID(str(user.id)))
 
     async def set_user_platform_admin(
         self, user: User, is_platform_admin: bool
@@ -290,7 +296,14 @@ async def test_admin_list_endpoints_return_paginated_payload(monkeypatch) -> Non
 
 @pytest.mark.asyncio
 async def test_admin_set_user_active_bans_user(monkeypatch) -> None:
-    monkeypatch.setattr(admin_module, "AdminRepository", FakeAdminRepository)
+    repositories = []
+
+    def create_repository(session):
+        repository = FakeAdminRepository(session)
+        repositories.append(repository)
+        return repository
+
+    monkeypatch.setattr(admin_module, "AdminRepository", create_repository)
     admin_id = uuid4()
     app.dependency_overrides[get_current_user] = lambda: _admin_user(admin_id)
     app.dependency_overrides[get_db_session] = fake_db_session
@@ -305,6 +318,8 @@ async def test_admin_set_user_active_bans_user(monkeypatch) -> None:
         assert body["id"] == str(TARGET_UUID)
         assert body["is_active"] is False
         assert body["is_platform_admin"] is False
+        assert repositories[0].revoked_api_keys == [TARGET_UUID]
+        assert repositories[0].revoked_refresh_tokens == [TARGET_UUID]
     finally:
         app.dependency_overrides.clear()
 

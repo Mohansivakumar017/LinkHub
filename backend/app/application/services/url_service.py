@@ -90,6 +90,7 @@ class URLService:
             raise URLAliasConflictError("alias already taken") from exc
         await self._record_audit(owner_user_id, "url.created", "url", str(item.id))
         await self._session.commit()
+        await self._cache.delete(short_code)
         if self._cacheable(item):
             await self._cache.set(short_code, self._to_cache_payload(item))
         return item

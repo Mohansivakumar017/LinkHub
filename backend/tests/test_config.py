@@ -23,6 +23,7 @@ def test_production_accepts_explicit_security_configuration() -> None:
         smtp_host="smtp.example.com",
         smtp_username="mailer",
         smtp_password="smtp-secret",
+        smtp_use_tls=True,
     )
 
     assert settings.environment == "production"
@@ -40,6 +41,7 @@ def test_production_rejects_wildcard_cors() -> None:
             smtp_host="smtp.example.com",
             smtp_username="mailer",
             smtp_password="smtp-secret",
+            smtp_use_tls=True,
         )
 
 
@@ -55,4 +57,5 @@ def test_production_rejects_localhost_cors() -> None:
             smtp_host="smtp.example.com",
             smtp_username="mailer",
             smtp_password="smtp-secret",
+            smtp_use_tls=True,
         )

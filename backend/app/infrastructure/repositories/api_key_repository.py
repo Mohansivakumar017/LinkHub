@@ -12,10 +12,16 @@ class ApiKeyRepository:
         self._session = session
 
     async def create(
-        self, user_id: UUID, name: str, key_prefix: str, key_hash: str
+        self,
+        user_id: UUID,
+        name: str,
+        key_prefix: str,
+        key_hash: str,
+        organization_id: UUID | None = None,
     ) -> ApiKey:
         item = ApiKey(
             user_id=user_id,
+            organization_id=organization_id,
             name=name,
             key_prefix=key_prefix,
             key_hash=key_hash,
@@ -61,4 +67,13 @@ class ApiKeyRepository:
     async def revoke(self, item: ApiKey) -> None:
         item.is_active = False
         item.revoked_at = datetime.now(UTC).replace(tzinfo=None)
+        await self._session.flush()
+
+    async def revoke_all_for_user(self, user_id: UUID) -> None:
+        now = datetime.now(UTC).replace(tzinfo=None)
+        await self._session.execute(
+            update(ApiKey)
+            .where(ApiKey.user_id == user_id, ApiKey.is_active.is_(True))
+            .values(is_active=False, revoked_at=now)
+        )
         await self._session.flush()

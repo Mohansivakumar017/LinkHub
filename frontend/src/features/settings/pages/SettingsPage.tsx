@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { apiBaseUrl } from "../../../shared/api/client";
 import { useSession } from "../../../shared/session/SessionProvider";
 import { WorkspaceLayout } from "../../workspace/WorkspaceLayout";
+import { readApiErrorMessage } from "../../../shared/api/errors";
+import { WorkspaceFeedback } from "../../../shared/components/WorkspaceFeedback";
 
 export function SettingsPage() {
   const { api, clear } = useSession();
@@ -29,8 +31,7 @@ export function SettingsPage() {
       body: JSON.stringify({ current_password: current, new_password: next }),
     });
     if (!response.ok) {
-      const body = await response.json().catch(() => ({})) as { detail?: string; error?: { message?: string } };
-      setError(body.error?.message ?? body.detail ?? "Could not change password");
+      setError(await readApiErrorMessage(response, "Could not change password."));
       setSubmitting(false);
       return;
     }
@@ -47,7 +48,7 @@ export function SettingsPage() {
       <section className="settings-grid">
         <article className="card">
           <h2>Change password</h2>
-          {error && <p className="auth-error" role="alert">{error}</p>}
+          {error && <WorkspaceFeedback kind="error" message={error} onDismiss={() => setError("")} />}
           <form className="create-form" onSubmit={change}>
             <input
               type="password"

@@ -18,8 +18,9 @@ services:
       - /var/cache/nginx
       - /var/run
     networks:
-      - public
-      - internal
+      public:
+        ipv4_address: 172.31.240.2
+      internal: {}
     deploy:
       resources:
         limits:
@@ -39,6 +40,7 @@ services:
       CELERY_ENABLED: "true"
       CELERY_EMAIL_ENABLED: "true"
       RATE_LIMIT_ENABLED: "true"
+      FORWARDED_ALLOW_IPS: "${FORWARDED_ALLOW_IPS:-172.31.240.2}"
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
       SMTP_USE_TLS: "false"
@@ -321,6 +323,9 @@ services:
 networks:
   public:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24
   internal:
     driver: bridge
     internal: true

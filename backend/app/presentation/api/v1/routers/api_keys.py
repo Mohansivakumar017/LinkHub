@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 
 class CreateApiKeyRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
+    organization_id: UUID | None = None
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -24,14 +25,20 @@ async def create_api_key(
     payload: CreateApiKeyRequest,
     session: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-) -> dict[str, str]:
+) -> dict[str, str | None]:
     user_id = UUID(str(current_user.id))
-    created = await ApiKeyService(session).create(user_id, payload.name)
+    try:
+        created = await ApiKeyService(session).create(
+            user_id, payload.name, payload.organization_id
+        )
+    except ApiKeyNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return {
         "id": str(created.id),
         "name": created.name,
         "key": created.key,
         "key_prefix": created.key_prefix,
+        "organization_id": str(created.organization_id) if created.organization_id else None,
     }
 
 
@@ -45,6 +52,7 @@ async def list_api_keys(
         {
             "id": str(item.id),
             "name": item.name,
+            "organization_id": str(item.organization_id) if item.organization_id else None,
             "key_prefix": item.key_prefix,
             "is_active": item.is_active,
             "last_used_at": item.last_used_at.isoformat()
@@ -75,7 +83,7 @@ async def rotate_api_key(
     key_id: UUID,
     session: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-) -> dict[str, str]:
+) -> dict[str, str | None]:
     try:
         rotated = await ApiKeyService(session).rotate(UUID(str(current_user.id)), key_id)
     except ApiKeyNotFoundError as exc:
@@ -85,4 +93,5 @@ async def rotate_api_key(
         "name": rotated.name,
         "key": rotated.key,
         "key_prefix": rotated.key_prefix,
+        "organization_id": str(rotated.organization_id) if rotated.organization_id else None,
     }

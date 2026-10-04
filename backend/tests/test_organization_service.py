@@ -63,6 +63,13 @@ class FakeMemberRepo:
                 return membership
         return None
 
+    async def list_members(self, organization_id):
+        return [
+            membership
+            for membership in self.memberships
+            if membership.organization_id == organization_id
+        ]
+
     async def update_role(self, membership, role):
         membership.role = role
 
@@ -103,9 +110,18 @@ class FakeInviteRepo:
 class FakeUserRepo:
     def __init__(self) -> None:
         self.users_by_id: dict = {}
+        self.list_by_ids_calls: list[list] = []
 
     async def get_by_id(self, user_id):
         return self.users_by_id.get(user_id)
+
+    async def list_by_ids(self, user_ids):
+        self.list_by_ids_calls.append(user_ids)
+        return [
+            self.users_by_id[user_id]
+            for user_id in user_ids
+            if user_id in self.users_by_id
+        ]
 
 
 class FakeEmailSender:
@@ -215,3 +231,75 @@ async def test_invite_permission_and_invalid_accept() -> None:
 
     with pytest.raises(InvalidInviteError):
         await service.accept_invite(owner_id, "invalid-invite-token")
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_invite_another_admin() -> None:
+    session = FakeSession()
+    org_repo = FakeOrganizationRepo()
+    member_repo = FakeMemberRepo()
+    service = OrganizationService(
+        session,
+        org_repo=org_repo,
+        member_repo=member_repo,
+        invite_repo=FakeInviteRepo(),
+        user_repo=FakeUserRepo(),
+        email_sender=FakeEmailSender(),
+    )
+    owner_id = uuid4()
+    admin_id = uuid4()
+    organization_id = await service.create_organization(owner_id, "Invite Policy")
+    await member_repo.add_member(organization_id, admin_id, OrganizationRole.ADMIN)
+
+    with pytest.raises(PermissionDeniedError, match="admins can only invite members"):
+        await service.invite_member(
+            requester_user_id=admin_id,
+            organization_id=organization_id,
+            invited_email="new-admin@example.com",
+            role=OrganizationRole.ADMIN,
+        )
+
+    owner_invite = await service.invite_member(
+        requester_user_id=owner_id,
+        organization_id=organization_id,
+        invited_email="new-admin@example.com",
+        role=OrganizationRole.ADMIN,
+    )
+    assert owner_invite.invite_token
+
+
+@pytest.mark.asyncio
+async def test_list_members_fetches_users_in_one_batch_and_preserves_membership_order() -> None:
+    session = FakeSession()
+    org_repo = FakeOrganizationRepo()
+    member_repo = FakeMemberRepo()
+    user_repo = FakeUserRepo()
+    service = OrganizationService(
+        session,
+        org_repo=org_repo,
+        member_repo=member_repo,
+        user_repo=user_repo,
+    )
+    owner_id = uuid4()
+    member_id = uuid4()
+    missing_user_id = uuid4()
+    organization_id = await service.create_organization(owner_id, "Batch Team")
+    await member_repo.add_member(organization_id, member_id, OrganizationRole.MEMBER)
+    await member_repo.add_member(
+        organization_id, missing_user_id, OrganizationRole.MEMBER
+    )
+    user_repo.users_by_id[owner_id] = SimpleNamespace(
+        id=owner_id, email="owner@example.com", full_name="Owner"
+    )
+    user_repo.users_by_id[member_id] = SimpleNamespace(
+        id=member_id, email="member@example.com", full_name=None
+    )
+
+    members = await service.list_members(owner_id, organization_id)
+
+    assert [member["user_id"] for member in members] == [
+        str(owner_id),
+        str(member_id),
+    ]
+    assert members[1]["full_name"] == ""
+    assert user_repo.list_by_ids_calls == [[owner_id, member_id, missing_user_id]]
