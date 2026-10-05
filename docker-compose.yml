@@ -156,8 +156,9 @@ services:
     security_opt:
       - no-new-privileges:true
     networks:
-      - public
-      - internal
+      public:
+        ipv4_address: 172.31.240.6
+      internal: {}
     deploy:
       resources:
         limits:
