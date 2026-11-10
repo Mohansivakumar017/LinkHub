@@ -13,7 +13,7 @@ jobs:
     name: Scan repository history
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Scan with Gitleaks
@@ -29,6 +29,6 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Dependency review
         uses: actions/dependency-review-action@v4
