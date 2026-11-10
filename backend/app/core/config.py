@@ -71,7 +71,7 @@ class Settings(BaseSettings):
             return self
         if self.debug:
             raise ValueError("DEBUG must be false in production")
-        if self.jwt_secret_key.startswith("dev-only-"):
+        if self.jwt_secret_key.startswith("dev-only-") or "REPLACE_WITH" in self.jwt_secret_key:
             raise ValueError("JWT_SECRET_KEY must be replaced in production")
         if self.postgres_dsn.startswith("postgresql+asyncpg://linkhub:linkhub@"):
             raise ValueError("POSTGRES_DSN must be explicitly configured in production")

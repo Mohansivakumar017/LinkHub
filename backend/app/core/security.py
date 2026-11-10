@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import secrets
 
@@ -20,6 +21,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
     hashed_password_bytes = hashed_password.encode("utf-8")
     return bcrypt.checkpw(plain_password_bytes, hashed_password_bytes)
+
+
+async def hash_password_async(plain_password: str) -> str:
+    return await asyncio.to_thread(hash_password, plain_password)
+
+
+async def verify_password_async(plain_password: str, hashed_password: str) -> bool:
+    return await asyncio.to_thread(verify_password, plain_password, hashed_password)
 
 
 def generate_refresh_token() -> str:

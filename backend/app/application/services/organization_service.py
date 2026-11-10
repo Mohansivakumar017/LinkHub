@@ -331,6 +331,20 @@ class OrganizationService:
         if await self._members.get_membership(organization_id, requester_user_id) is None:
             raise PermissionDeniedError("organization access denied")
 
+    async def ensure_manager_access(
+        self, requester_user_id: UUID, organization_id: UUID
+    ) -> None:
+        if await self._orgs.get_by_id(organization_id) is None:
+            raise OrganizationNotFoundError("organization not found")
+        membership = await self._members.get_membership(
+            organization_id, requester_user_id
+        )
+        if membership is None or membership.role not in {
+            OrganizationRole.OWNER,
+            OrganizationRole.ADMIN,
+        }:
+            raise PermissionDeniedError("organization manager access required")
+
     async def update_member_role(
         self,
         requester_user_id: UUID,

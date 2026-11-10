@@ -217,7 +217,7 @@ async def list_organization_audit_logs(
 
     service = OrganizationService(session)
     try:
-        await service.ensure_member_access(current_user.id, organization_id)
+        await service.ensure_manager_access(current_user.id, organization_id)
     except OrganizationNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except PermissionDeniedError as exc:

@@ -245,10 +245,10 @@ export function LinksPage() {
   async function resolveLink(link: LinkItem, secret: string, destinationWindow: Window) {
     setOpeningLink(true);
     setLinkPasswordError("");
-    const query = secret ? `?${new URLSearchParams({ password: secret }).toString()}` : "";
+    const headers: HeadersInit = secret ? { "X-Link-Password": secret } : {};
     const r = await api.request(
-      `${apiBaseUrl}/urls/resolve/${encodeURIComponent(link.short_code)}${query}`,
-      { cache: "no-store" },
+      `${apiBaseUrl}/urls/resolve/${encodeURIComponent(link.short_code)}`,
+      { cache: "no-store", headers },
     );
     if (!r.ok) {
       const body = await r.clone().json().catch(() => ({})) as { detail?: string; error?: { message?: string } };
@@ -269,7 +269,14 @@ export function LinksPage() {
     setLinkPassword("");
     setOpeningLink(false);
     try {
-      destinationWindow.location.replace(body.original_url);
+      const destination = new URL(body.original_url);
+      if (!["http:", "https:"].includes(destination.protocol)) {
+        destinationWindow.close();
+        setError("The link destination is not safe to open.");
+        setOpeningLink(false);
+        return;
+      }
+      destinationWindow.location.replace(destination.href);
       setError("");
       setMessage("Link opened in a new tab.");
     } catch {

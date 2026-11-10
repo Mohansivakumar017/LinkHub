@@ -13,9 +13,9 @@ from app.core.jwt import (
 )
 from app.core.security import (
     generate_refresh_token,
-    hash_password,
+    hash_password_async,
     hash_token,
-    verify_password,
+    verify_password_async,
 )
 from app.infrastructure.email.sender import (
     BackgroundEmailSender,
@@ -96,7 +96,7 @@ class AuthService:
 
         user = await self._users.create(
             email=email,
-            hashed_password=hash_password(password),
+            hashed_password=await hash_password_async(password),
             full_name=full_name,
         )
         await self._record_audit(user.id, "auth.registered", "user", str(user.id))
@@ -109,7 +109,7 @@ class AuthService:
         if (
             user is None
             or not getattr(user, "is_active", True)
-            or not verify_password(password, user.hashed_password)
+            or not await verify_password_async(password, user.hashed_password)
         ):
             raise InvalidCredentialsError("invalid credentials")
         if not getattr(user, "is_email_verified", False):
@@ -136,7 +136,14 @@ class AuthService:
         hashed_token = hash_token(raw_refresh_token)
         token = await self._refresh_tokens.get_by_hash(hashed_token)
         now = datetime.now(UTC).replace(tzinfo=None)
-        if token is None or token.revoked or token.expires_at <= now:
+        if token is None:
+            raise InvalidRefreshTokenError("invalid refresh token")
+        if token.revoked:
+            if token.replaced_by is not None:
+                await self._refresh_tokens.revoke_all_for_user(token.user_id)
+                await self._session.commit()
+            raise InvalidRefreshTokenError("invalid refresh token")
+        if token.expires_at <= now:
             raise InvalidRefreshTokenError("invalid refresh token")
         user = await self._users.get_by_id(token.user_id)
         if (
@@ -243,7 +250,7 @@ class AuthService:
             raise InvalidVerificationTokenError("invalid reset token")
 
         await self._password_reset_tokens.mark_consumed(token, now)
-        await self._users.update_password(user, hash_password(new_password))
+        await self._users.update_password(user, await hash_password_async(new_password))
         await self._refresh_tokens.revoke_all_for_user(user_id=user.id)
         await self._record_audit(user.id, "auth.password_reset", "user", str(user.id))
         await self._session.commit()

@@ -190,12 +190,14 @@ test("authenticated user can verify, create an organization, and rotate an API k
   expect(missingPassword.status()).toBe(401);
   expect(await missingPassword.json()).toMatchObject({ error: { message: "link password required" } });
   const wrongPassword = await request.get(
-    `/api/v1/urls/resolve/${link.short_code}?password=WrongPass123!`
+    `/api/v1/urls/resolve/${link.short_code}`,
+    { headers: { "X-Link-Password": "WrongPass123!" } },
   );
   expect(wrongPassword.status()).toBe(401);
   expect(await wrongPassword.json()).toMatchObject({ error: { message: "invalid link password" } });
   const correctPassword = await request.get(
-    `/api/v1/urls/resolve/${link.short_code}?password=LinkPass123!`
+    `/api/v1/urls/resolve/${link.short_code}`,
+    { headers: { "X-Link-Password": "LinkPass123!" } },
   );
   expect(correctPassword.status()).toBe(200);
   expect(await correctPassword.json()).toMatchObject({

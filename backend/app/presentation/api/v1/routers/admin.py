@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_platform_admin
+from app.infrastructure.cache.url_cache import RedisURLCache
 from app.infrastructure.db.models.user import User
 from app.infrastructure.db.session import get_db_session
 from app.infrastructure.repositories.admin_repository import AdminRepository
@@ -202,6 +203,7 @@ async def restore_link(
         {"short_code": target.short_code},
     )
     await session.commit()
+    await RedisURLCache().delete(target.short_code)
     return {
         "id": str(target.id),
         "short_code": target.short_code,
@@ -230,3 +232,4 @@ async def hard_delete_link(
     )
     await repo.hard_delete_url(target)
     await session.commit()
+    await RedisURLCache().delete(short_code)

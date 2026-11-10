@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import and_, func, select
@@ -228,5 +228,5 @@ class OrganizationInviteRepository:
         await self._session.flush()
 
     async def mark_accepted(self, invite: OrganizationInvite) -> None:
-        invite.accepted_at = datetime.utcnow()
+        invite.accepted_at = datetime.now(UTC).replace(tzinfo=None)
         await self._session.flush()

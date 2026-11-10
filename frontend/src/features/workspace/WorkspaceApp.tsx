@@ -116,7 +116,12 @@ export function WorkspaceApp() {
       localStorage.setItem("linkhub_access_token", body.access_token);
       localStorage.setItem("linkhub_refresh_token", body.refresh_token);
       setTokens({ accessToken: body.access_token, refreshToken: body.refresh_token });
-      navigate(new URLSearchParams(window.location.search).get("returnTo") || "/workspace/links");
+      const returnTo = new URLSearchParams(window.location.search).get("returnTo");
+      const safeReturnTo =
+        returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")
+          ? returnTo
+          : "/workspace/links";
+      navigate(safeReturnTo);
     } catch {
       setError("The service is unavailable right now. Please try again.");
     } finally {

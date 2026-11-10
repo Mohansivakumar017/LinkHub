@@ -51,23 +51,33 @@ class RedisTokenBucketRateLimitMiddleware(BaseHTTPMiddleware):
             path not in self._paths and prefix is None
         ):
             return await call_next(request)
-        if prefix is not None and "password" not in request.query_params:
+        if prefix is not None and (
+            "password" not in request.query_params
+            and "x-link-password" not in request.headers
+        ):
             return await call_next(request)
 
         identifier = request.client.host if request.client else "unknown"
         bucket_path = prefix or path
-        bucket_key = f"rl:{bucket_path}:{identifier}"
+        keys = [f"rl:{bucket_path}:{identifier}"]
+        if prefix is not None:
+            short_code = path[len(prefix) :].split("/", 1)[0]
+            keys.append(f"rl:{bucket_path}:{short_code}:{identifier}")
         now = time.time()
 
         try:
-            allowed, tokens = await self._redis.eval(
-                TOKEN_BUCKET_SCRIPT,
-                1,
-                bucket_key,
-                now,
-                self._capacity,
-                self._refill_per_second,
-            )
+            tokens = self._capacity
+            for bucket_key in keys:
+                allowed, tokens = await self._redis.eval(
+                    TOKEN_BUCKET_SCRIPT,
+                    1,
+                    bucket_key,
+                    now,
+                    self._capacity,
+                    self._refill_per_second,
+                )
+                if not allowed:
+                    break
         except redis.RedisError:
             logger.exception("rate_limit_backend_unavailable")
             return JSONResponse(

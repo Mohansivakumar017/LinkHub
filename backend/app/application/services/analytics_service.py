@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.url_service import URLNotFoundError
-from app.core.security import verify_password
+from app.core.security import verify_password_async
 from app.core.urls import is_safe_redirect_url
 from app.infrastructure.cache.url_cache import RedisURLCache, URLCache
 from app.infrastructure.repositories.click_repository import ClickRepository
@@ -112,7 +112,7 @@ class AnalyticsService:
         if password_hash:
             if password is None:
                 raise URLAccessDeniedError("link password required")
-            if not verify_password(password, password_hash):
+            if not await verify_password_async(password, password_hash):
                 raise URLAccessDeniedError("invalid link password")
 
         click_count = await self._clicks.count_for_url(url.id)
@@ -134,13 +134,13 @@ class AnalyticsService:
             organization_id=url.organization_id,
             visitor_key=visitor_key,
             ip_address=context.ip_address,
-            user_agent=context.user_agent,
-            referrer=context.referrer,
+            user_agent=(context.user_agent or "")[:512] or None,
+            referrer=(context.referrer or "")[:1024] or None,
             browser=browser,
             os=os_name,
             device=device,
-            country=context.country,
-            city=context.city,
+            country=None,
+            city=None,
         )
 
         should_archive = url.one_time or (url.click_limit is not None and click_count + 1 >= url.click_limit)

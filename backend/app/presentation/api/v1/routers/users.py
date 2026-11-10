@@ -5,12 +5,12 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from PIL import Image, UnidentifiedImageError
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.dependencies import get_current_user
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_password_async, verify_password_async
 from app.infrastructure.db.models.user import User
 from app.infrastructure.db.session import get_db_session
 from app.infrastructure.repositories.refresh_token_repository import (
@@ -30,7 +30,6 @@ AVATAR_FORMATS = {
 
 class UpdateProfileRequest(BaseModel):
     full_name: str | None = Field(default=None, max_length=255)
-    avatar_url: HttpUrl | None = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -66,8 +65,11 @@ async def update_profile(
     session: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, str | bool | None]:
+    changes = payload.model_dump(exclude_unset=True)
+    if "full_name" in changes:
+        current_user.full_name = changes["full_name"]
     await UserRepository(session).update_profile(
-        current_user, payload.full_name, str(payload.avatar_url) if payload.avatar_url else None
+        current_user, current_user.full_name, current_user.avatar_url
     )
     await session.commit()
     return await get_profile(current_user)
@@ -79,13 +81,15 @@ async def change_password(
     session: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
 ) -> None:
-    if not verify_password(payload.current_password, str(current_user.hashed_password)):
+    if not await verify_password_async(
+        payload.current_password, str(current_user.hashed_password)
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="current password is incorrect",
         )
     await UserRepository(session).update_password(
-        current_user, hash_password(payload.new_password)
+        current_user, await hash_password_async(payload.new_password)
     )
     await RefreshTokenRepository(session).revoke_all_for_user(UUID(str(current_user.id)))
     await session.commit()

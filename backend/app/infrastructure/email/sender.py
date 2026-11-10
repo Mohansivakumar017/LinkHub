@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import smtplib
+import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage as SMTPMessage
 from typing import Protocol
@@ -56,7 +57,7 @@ class SMTPEmailSender:
         email.set_content(message.body)
         with smtplib.SMTP(host, settings.smtp_port, timeout=10) as client:
             if settings.smtp_use_tls:
-                client.starttls()
+                client.starttls(context=ssl.create_default_context())
             if settings.smtp_username and settings.smtp_password:
                 client.login(settings.smtp_username, settings.smtp_password)
             client.send_message(email)

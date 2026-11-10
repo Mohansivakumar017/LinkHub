@@ -5,7 +5,7 @@ services:
       args:
         VITE_API_BASE_URL: /api/v1
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       api:
         condition: service_healthy
@@ -45,7 +45,7 @@ services:
       SMTP_PORT: "1025"
       SMTP_USE_TLS: "false"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/ready')"]
       interval: 10s
@@ -68,8 +68,9 @@ services:
     volumes:
       - media_data:/app/media
     networks:
-      - public
-      - internal
+      public:
+        ipv4_address: 172.31.240.4
+      internal: {}
     deploy:
       resources:
         limits:
@@ -151,7 +152,7 @@ services:
   mailpit:
     image: axllent/mailpit:v1.21
     ports:
-      - "8025:8025"
+      - "127.0.0.1:8025:8025"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -213,7 +214,7 @@ services:
       POSTGRES_USER: linkhub
       POSTGRES_PASSWORD: linkhub
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U linkhub -d linkhub"]
       interval: 5s
@@ -238,7 +239,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -270,7 +271,7 @@ services:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     depends_on:
       api:
         condition: service_healthy
@@ -284,10 +285,10 @@ services:
       - "--storage.tsdb.retention.time=30d"
       - "--web.console.libraries=/usr/share/prometheus/console_libraries"
       - "--web.console.templates=/usr/share/prometheus/consoles"
-      - "--web.enable-lifecycle"
     networks:
-      - public
-      - internal
+      public:
+        ipv4_address: 172.31.240.3
+      internal: {}
     deploy:
       resources:
         limits:
@@ -297,7 +298,7 @@ services:
   grafana:
     image: grafana/grafana:11.2.0
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - prometheus
     volumes:
@@ -313,8 +314,9 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
     networks:
-      - public
-      - internal
+      public:
+        ipv4_address: 172.31.240.5
+      internal: {}
     deploy:
       resources:
         limits:

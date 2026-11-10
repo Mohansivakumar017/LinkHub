@@ -51,6 +51,9 @@ class FakeOrganizationService:
     async def ensure_member_access(self, requester_user_id, organization_id):
         return None
 
+    async def ensure_manager_access(self, requester_user_id, organization_id):
+        return None
+
 
 class FakeAuditRepository:
     def __init__(self, session) -> None:

@@ -1,5 +1,7 @@
 # LinkHub
 
+> Status: prototype / active development. Review the production deployment checklist before exposing this application publicly.
+
 LinkHub is an enterprise-grade link management SaaS for organizations that need secure smart links, analytics, team collaboration, and operational control. It is designed as a production-quality platform similar to Bitly Enterprise and TinyURL, but extended with private links, admin controls, org-level governance, rate limits, API key operations, and operational monitoring.
 
 ## Why this exists
@@ -267,6 +269,8 @@ This project is structured to be interview-ready and production-minded:
 - Monitoring and health checks.
 - Docker Compose-based deployment workflow.
 - CI automation for lint, tests, build, and smoke validation.
+- Automated Gitleaks, CodeQL, dependency-review, and Dependabot configuration.
+- Security reporting guidance in `SECURITY.md`.
 - Organization-scoped API keys with membership validation and usage tracking.
 - Migration drift checks with strict Alembic metadata validation.
 

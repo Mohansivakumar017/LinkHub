@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -36,7 +36,7 @@ class FakeAdminRepository:
             is_platform_admin=is_platform_admin,
         )
         user.full_name = "User Name"
-        user.created_at = datetime.utcnow()
+        user.created_at = datetime.now(UTC).replace(tzinfo=None)
         return user
 
     async def list_users(self, offset: int, limit: int) -> tuple[list[User], int]:
@@ -51,7 +51,7 @@ class FakeAdminRepository:
             slug="acme",
             owner_user_id=uuid4(),
         )
-        org.created_at = datetime.utcnow()
+        org.created_at = datetime.now(UTC).replace(tzinfo=None)
         return [org], 1
 
     async def list_urls(self, offset: int, limit: int) -> tuple[list[URL], int]:
@@ -64,7 +64,7 @@ class FakeAdminRepository:
         )
         link.is_archived = False
         link.is_deleted = False
-        link.created_at = datetime.utcnow()
+        link.created_at = datetime.now(UTC).replace(tzinfo=None)
         return [link], 1
 
     async def metrics(self) -> dict[str, int]:
@@ -91,7 +91,7 @@ class FakeAdminRepository:
             resource_id=str(uuid4()),
             details={"email": "admin@example.com"},
         )
-        log.created_at = datetime.utcnow()
+        log.created_at = datetime.now(UTC).replace(tzinfo=None)
         log.ip_address = "203.0.113.5"
         return [log], 1
 
@@ -135,7 +135,7 @@ class FakeAdminRepository:
             )
             url.is_deleted = True
             url.is_archived = False
-            url.created_at = datetime.utcnow()
+            url.created_at = datetime.now(UTC).replace(tzinfo=None)
             return url
         url = URL(
             id=url_id,
@@ -146,7 +146,7 @@ class FakeAdminRepository:
         )
         url.is_deleted = False
         url.is_archived = False
-        url.created_at = datetime.utcnow()
+        url.created_at = datetime.now(UTC).replace(tzinfo=None)
         return url
 
     async def restore_url(self, url: URL) -> None:

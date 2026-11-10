@@ -24,16 +24,14 @@ export function SharedLinkPage() {
       setError("");
 
       const secret = supplied ?? password;
-      const query = secret
-        ? `?${new URLSearchParams({ password: secret }).toString()}`
-        : "";
       const headers: HeadersInit = tokens?.accessToken
         ? { Authorization: `Bearer ${tokens.accessToken}` }
         : {};
+      if (secret) headers["X-Link-Password"] = secret;
       let response: Response;
       try {
         response = await fetch(
-          `${apiBaseUrl}/urls/resolve/${encodeURIComponent(code)}${query}`,
+          `${apiBaseUrl}/urls/resolve/${encodeURIComponent(code)}`,
           { headers, cache: "no-store" },
         );
       } catch {
@@ -44,7 +42,13 @@ export function SharedLinkPage() {
 
       if (response.ok) {
         const body = (await response.json()) as { original_url: string };
-        window.location.assign(body.original_url);
+        const destination = new URL(body.original_url);
+        if (!["http:", "https:"].includes(destination.protocol)) {
+          setError("The link destination is not safe to open.");
+          setLoading(false);
+          return;
+        }
+        window.location.assign(destination.href);
         return;
       }
 

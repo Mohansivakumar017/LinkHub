@@ -7,6 +7,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -213,7 +214,7 @@ async def resolve_short_code(
     short_code: str,
     request: Request,
     response: Response,
-    password: str | None = Query(default=None, min_length=1, max_length=128),
+    password: str | None = Header(default=None, alias="X-Link-Password", max_length=128),
     session: AsyncSession = Depends(get_db_session),
     current_user: User | None = Depends(get_optional_current_user),
 ) -> dict:
@@ -248,7 +249,7 @@ async def resolve_short_code(
 async def redirect_short_code(
     short_code: str,
     request: Request,
-    password: str | None = Query(default=None, min_length=1, max_length=128),
+    password: str | None = Header(default=None, alias="X-Link-Password", max_length=128),
     session: AsyncSession = Depends(get_db_session),
     current_user: User | None = Depends(get_optional_current_user),
 ) -> RedirectResponse:

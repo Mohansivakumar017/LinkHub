@@ -7,9 +7,10 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import hash_password
+from app.core.security import hash_password_async
 from app.core.urls import is_safe_redirect_url
 from app.infrastructure.cache.url_cache import RedisURLCache, URLCache
+from app.infrastructure.db.models.organization import OrganizationRole
 from app.infrastructure.repositories.audit_repository import AuditRepository
 from app.infrastructure.repositories.organization_repository import (
     OrganizationMemberRepository,
@@ -84,7 +85,9 @@ class URLService:
                 title=title,
                 expires_at=expires_at,
                 one_time=one_time,
-                password_hash=hash_password(password) if password else None,
+                password_hash=(
+                    await hash_password_async(password) if password else None
+                ),
                 click_limit=click_limit,
                 is_private=is_private,
             )
@@ -99,7 +102,7 @@ class URLService:
         return item
 
     async def update_url(self, organization_id: UUID, requester_user_id: UUID, url_id: UUID, **changes):
-        await self._require_membership(organization_id, requester_user_id)
+        await self._require_manager(organization_id, requester_user_id)
         if "original_url" in changes and not is_safe_redirect_url(
             changes["original_url"]
         ):
@@ -123,7 +126,9 @@ class URLService:
                 changes["short_code"] = alias
         if "password" in changes:
             raw = changes.pop("password")
-            changes["password_hash"] = hash_password(raw) if raw else None
+            changes["password_hash"] = (
+                await hash_password_async(raw) if raw else None
+            )
         if "expires_at" in changes:
             changes["expiration_notified_at"] = None
         try:
@@ -141,7 +146,7 @@ class URLService:
         return updated
 
     async def delete_url(self, organization_id: UUID, requester_user_id: UUID, url_id: UUID) -> None:
-        await self._require_membership(organization_id, requester_user_id)
+        await self._require_manager(organization_id, requester_user_id)
         item = await self._urls.get_by_id(url_id)
         if item is None or item.organization_id != organization_id or item.is_deleted:
             raise URLNotFoundError("url not found")
@@ -151,7 +156,7 @@ class URLService:
         await self._cache.delete(item.short_code)
 
     async def archive_url(self, organization_id: UUID, requester_user_id: UUID, url_id: UUID) -> None:
-        await self._require_membership(organization_id, requester_user_id)
+        await self._require_manager(organization_id, requester_user_id)
         item = await self._urls.get_by_id(url_id)
         if item is None or item.organization_id != organization_id or item.is_deleted:
             raise URLNotFoundError("url not found")
@@ -161,7 +166,7 @@ class URLService:
         await self._cache.delete(item.short_code)
 
     async def restore_url(self, organization_id: UUID, requester_user_id: UUID, url_id: UUID) -> None:
-        await self._require_membership(organization_id, requester_user_id)
+        await self._require_manager(organization_id, requester_user_id)
         item = await self._urls.get_by_id(url_id)
         if item is None or item.organization_id != organization_id or item.is_deleted:
             raise URLNotFoundError("url not found")
@@ -172,7 +177,7 @@ class URLService:
             await self._cache.set(item.short_code, self._to_cache_payload(item))
 
     async def duplicate_url(self, organization_id: UUID, requester_user_id: UUID, url_id: UUID):
-        await self._require_membership(organization_id, requester_user_id)
+        await self._require_manager(organization_id, requester_user_id)
         original = await self._urls.get_by_id(url_id)
         if original is None or original.organization_id != organization_id or original.is_deleted:
             raise URLNotFoundError("url not found")
@@ -290,6 +295,16 @@ class URLService:
         membership = await self._members.get_membership(organization_id, user_id)
         if membership is None:
             raise URLPermissionDeniedError("organization access denied")
+
+    async def _require_manager(self, organization_id: UUID, user_id: UUID) -> None:
+        membership = await self._members.get_membership(organization_id, user_id)
+        if membership is None or membership.role not in {
+            OrganizationRole.OWNER,
+            OrganizationRole.ADMIN,
+            "owner",
+            "admin",
+        }:
+            raise URLPermissionDeniedError("organization manager access required")
 
     @staticmethod
     def _normalize_expiration(value: datetime | None) -> datetime | None:
