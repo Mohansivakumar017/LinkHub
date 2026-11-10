@@ -3,8 +3,10 @@ import pytest
 from app.core.security import (
     generate_refresh_token,
     hash_password,
+    hash_password_async,
     hash_token,
     verify_password,
+    verify_password_async,
 )
 
 
@@ -33,6 +35,15 @@ def test_bcrypt_password_byte_limit_counts_utf8_bytes():
     assert verify_password(accepted, hashed)
     with pytest.raises(ValueError, match="72 UTF-8 bytes"):
         hash_password("é" * 37)
+
+
+@pytest.mark.asyncio
+async def test_async_password_helpers_match_sync_helpers():
+    password = "AsyncStrongPass123!"
+    hashed = await hash_password_async(password)
+
+    assert await verify_password_async(password, hashed)
+    assert not await verify_password_async("wrong-password", hashed)
 
 
 def test_refresh_token_and_hash():
