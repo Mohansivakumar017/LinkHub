@@ -45,6 +45,17 @@ def test_analytics_router_contract(monkeypatch) -> None:
     assert series_res.status_code == 200
     assert isinstance(series_res.json(), list)
 
+    monthly_res = client.get(
+        f"/api/v1/analytics/organizations/{org_id}/timeseries?days=365&granularity=monthly"
+    )
+    assert monthly_res.status_code == 200
+    assert isinstance(monthly_res.json(), list)
+
+    invalid_granularity_res = client.get(
+        f"/api/v1/analytics/organizations/{org_id}/timeseries?granularity=hourly"
+    )
+    assert invalid_granularity_res.status_code == 422
+
     top_res = client.get(f"/api/v1/analytics/organizations/{org_id}/top-links?days=30&limit=5")
     assert top_res.status_code == 200
     assert isinstance(top_res.json(), list)

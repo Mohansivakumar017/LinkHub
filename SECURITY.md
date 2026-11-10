@@ -2,9 +2,9 @@
 
 ## Supported versions
 
-Only the latest commit on `main` is supported. This repository is an active
-prototype and should not be exposed to the public internet without the
-production deployment controls described in the README.
+Only the latest commit on `main` is supported. The application should not be
+exposed to the public internet without the production deployment controls
+described in the README.
 
 ## Reporting a vulnerability
 

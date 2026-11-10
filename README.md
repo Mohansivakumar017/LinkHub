@@ -1,6 +1,6 @@
 # LinkHub
 
-> Status: prototype / active development. Review the production deployment checklist before exposing this application publicly.
+> Status: implementation complete for the repository scope. Review the production deployment checklist before exposing this application publicly.
 
 LinkHub is an enterprise-grade link management SaaS for organizations that need secure smart links, analytics, team collaboration, and operational control. It is designed as a production-quality platform similar to Bitly Enterprise and TinyURL, but extended with private links, admin controls, org-level governance, rate limits, API key operations, and operational monitoring.
 
@@ -242,6 +242,10 @@ Examples:
 - `/api/v1/organizations`
 - `/api/v1/admin`
 
+Link resources support `POST`, `GET /{id}`, `PATCH`, soft `DELETE`, archive/restore,
+duplicate, bulk operations, QR download, and public resolve/redirect routes.
+Analytics time series support `daily`, `weekly`, and `monthly` granularities.
+
 API conventions:
 
 - RESTful resource naming.
@@ -278,24 +282,25 @@ This project is structured to be interview-ready and production-minded:
 
 The project is being implemented in a production-first sequence:
 
-1. Project setup
-2. Authentication
-3. Organizations
-4. URL management
-5. Redis and rate limiting
-6. Analytics
-7. Background workers
-8. Admin features
-9. Monitoring
-10. Deployment
+1. Project setup — complete
+2. Authentication — complete
+3. Organizations — complete
+4. URL management — complete
+5. Redis and rate limiting — complete
+6. Analytics — complete
+7. Background workers — complete
+8. Admin features — complete
+9. Monitoring — complete
+10. Deployment — complete for Docker Compose and host-proxy operation
 
-The current implementation includes the production-grade backend, frontend shell, org flows, protected link handling, Redis controls, analytics logic, admin UI, organization-scoped API keys, CI flow, and Docker orchestration.
+The implementation includes the production-grade backend, frontend shell, org flows, protected link handling, Redis controls, daily/weekly/monthly analytics, admin UI, organization-scoped API keys, CI flow, and Docker orchestration.
 
 ## Operating notes
 
 - Local development runs through Docker Compose.
 - Compose assigns the frontend proxy the fixed address `172.31.240.2`; the API trusts forwarded client-IP headers only from that address. If that subnet conflicts with an existing Docker network, change the public network subnet, frontend address, and API `FORWARDED_ALLOW_IPS` together. For deployments with another reverse proxy in front of the frontend, add only that proxy's verified source address to `FORWARDED_ALLOW_IPS`.
 - Mailpit is used for verification email testing in local and CI smoke flows.
+- Local `PUBLIC_BASE_URL` is `http://localhost:8080`, the browser-facing frontend origin used by QR codes and email action links.
 - Redis is used for rate limiting and cache policy.
 - Platform-admin account deactivation revokes the account's refresh sessions and API keys; reactivation does not restore those credentials.
 - Access tokens carry a per-user authentication version. Password changes/resets and account deactivation invalidate previously issued access tokens immediately, including after account reactivation.

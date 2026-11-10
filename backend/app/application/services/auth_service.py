@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 from uuid import UUID
 
 from jwt import PyJWTError
@@ -188,11 +189,18 @@ class AuthService:
             return
 
         token = create_email_verification_token(subject=str(user.id))
+        verification_url = (
+            f"{get_settings().public_base_url.rstrip('/')}/auth"
+            f"?mode=verify&token={quote(token)}"
+        )
         await self._email_sender.send(
             EmailMessage(
                 to_email=user.email,
                 subject="Verify your LinkHub email",
-                body=f"Use this token to verify your email: {token}",
+                body=(
+                    f"Verify your LinkHub email by opening:\n{verification_url}\n\n"
+                    f"If needed, use this token to verify your email: {token}"
+                ),
             )
         )
 
@@ -227,11 +235,18 @@ class AuthService:
             expires_at=expires_at,
         )
         await self._session.commit()
+        reset_url = (
+            f"{get_settings().public_base_url.rstrip('/')}/auth"
+            f"?mode=reset&token={quote(token)}"
+        )
         await self._email_sender.send(
             EmailMessage(
                 to_email=user.email,
                 subject="LinkHub password reset",
-                body=f"Use this token to reset your password: {token}",
+                body=(
+                    f"Reset your LinkHub password by opening:\n{reset_url}\n\n"
+                    f"If needed, use this token manually: {token}"
+                ),
             )
         )
 

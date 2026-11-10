@@ -6,6 +6,7 @@ import { WorkspaceLayout } from "../../workspace/WorkspaceLayout";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
 import { readApiErrorMessage } from "../../../shared/api/errors";
 import { WorkspaceFeedback } from "../../../shared/components/WorkspaceFeedback";
+import { useLocation } from "react-router-dom";
 type Org = { id: string; name: string; slug?: string; role: "owner" | "admin" | "member" };
 type Member = { user_id: string; email: string; full_name?: string | null; role: string };
 type Invite = { id: string; invited_email: string; role: string; expires_at: string; created_at: string; is_expired: boolean };
@@ -13,6 +14,7 @@ type AuditLog = { id: string; action: string; resource_type: string; resource_id
 
 export function OrganizationsPage() {
   const { api } = useSession(); const [orgs, setOrgs] = useState<Org[]>([]);
+  const location = useLocation();
   const { organizationId: org, selectOrganization } = useSelectedOrganization();
   const currentRole = orgs.find(item => item.id === org)?.role;
   const [members, setMembers] = useState<Member[]>([]), [name, setName] = useState(""), [email, setEmail] = useState("");
@@ -24,6 +26,10 @@ export function OrganizationsPage() {
   const [auditAction, setAuditAction] = useState(""), [auditResourceType, setAuditResourceType] = useState("");
   const [confirmation, setConfirmation] = useState<{ member: Member; action: "transfer" | "remove" } | { invite: Invite; action: "revoke-invite" } | null>(null);
   const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    const invite = new URLSearchParams(location.search).get("invite");
+    if (invite) setAcceptToken(invite);
+  }, [location.search]);
   async function load() { setLoading(true); const r = await api.request(`${apiBaseUrl}/organizations`); if (r.ok) { setOrgs(await r.json()); setError(""); } else setError(await readApiErrorMessage(r, "Could not load organizations.")); setLoading(false); }
   async function loadAudit(id: string, action = auditAction, resourceType = auditResourceType) {
     if (!id) return setAuditLogs([]);

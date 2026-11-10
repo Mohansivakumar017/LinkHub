@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     environment: Literal["local", "development", "staging", "production"] = "local"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
-    public_base_url: str = "http://localhost:8000"
+    public_base_url: str = "http://localhost:8080"
 
     postgres_dsn: str = Field(
         default="postgresql+asyncpg://linkhub:linkhub@db:5432/linkhub"

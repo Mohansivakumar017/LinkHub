@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.infrastructure.db.base import Base
+from app.infrastructure.db.base import Base, utcnow_naive
 
 
 class URL(Base):
@@ -58,8 +58,8 @@ class URL(Base):
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     deleted_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=utcnow_naive, nullable=False
     )
     updated_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False
+        DateTime, default=utcnow_naive, onupdate=utcnow_naive, nullable=False
     )

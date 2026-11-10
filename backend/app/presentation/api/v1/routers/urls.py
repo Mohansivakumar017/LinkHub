@@ -101,12 +101,19 @@ class URLBulkDeleteRequest(BaseModel):
 
 
 def _to_response(item) -> dict:
+    settings = get_settings()
+    short_url = f"{settings.public_base_url.rstrip('/')}/?link={item.short_code}"
     return {
         "id": str(item.id),
         "organization_id": str(item.organization_id),
         "owner_user_id": str(item.owner_user_id),
         "original_url": item.original_url,
         "short_code": item.short_code,
+        "short_url": short_url,
+        "qr_code_url": (
+            f"{settings.api_v1_prefix}/urls/{item.id}/qr"
+            f"?organization_id={item.organization_id}"
+        ),
         "custom_alias": item.custom_alias,
         "title": item.title,
         "expires_at": item.expires_at.isoformat() if item.expires_at else None,
@@ -146,6 +153,8 @@ async def create_url(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except URLAliasConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return _to_response(item)
 
 
@@ -312,6 +321,23 @@ async def download_qr_code(
     )
 
 
+@router.get("/{url_id}")
+async def get_url(
+    url_id: UUID,
+    organization_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    service = URLService(session)
+    try:
+        item = await service.get_url(organization_id, current_user.id, url_id)
+    except URLPermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except URLNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return _to_response(item)
+
+
 @router.patch("/{url_id}")
 async def update_url(
     url_id: UUID,
@@ -330,6 +356,8 @@ async def update_url(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except URLAliasConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except URLNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return _to_response(item)

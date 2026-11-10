@@ -32,7 +32,7 @@ async def organization_overview(
 async def organization_time_series(
     organization_id: UUID,
     days: int = Query(default=30, ge=1, le=365),
-    granularity: str = Query(default="daily", pattern="^(daily|weekly)$"),
+    granularity: str = Query(default="daily", pattern="^(daily|weekly|monthly)$"),
     session: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
 ) -> list[dict]:

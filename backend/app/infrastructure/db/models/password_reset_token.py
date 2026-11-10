@@ -5,7 +5,7 @@ from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.infrastructure.db.base import Base
+from app.infrastructure.db.base import Base, utcnow_naive
 
 
 class PasswordResetToken(Base):
@@ -27,5 +27,5 @@ class PasswordResetToken(Base):
     expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
     consumed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=utcnow_naive, nullable=False
     )

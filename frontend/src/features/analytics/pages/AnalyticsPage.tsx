@@ -28,6 +28,7 @@ export function AnalyticsPage() {
     range_days: number;
   } | null>(null);
   const [series, setSeries] = useState<Row[]>([]);
+  const [granularity, setGranularity] = useState("daily");
   const [breakdown, setBreakdown] = useState<Row[]>([]);
   const [topLinks, setTopLinks] = useState<TopLink[]>([]);
   const [dimension, setDimension] = useState("browser");
@@ -50,7 +51,7 @@ export function AnalyticsPage() {
     const [overviewResponse, seriesResponse, topResponse, breakdownResponse] =
       await Promise.all([
         api.request(`${base}/overview?${query}`),
-        api.request(`${base}/timeseries?${query}&granularity=daily`),
+        api.request(`${base}/timeseries?${query}&granularity=${granularity}`),
         api.request(`${base}/top-links?${query}&limit=10`),
         api.request(`${base}/breakdown?${query}&dimension=${dimension}&limit=20`),
       ]);
@@ -58,7 +59,7 @@ export function AnalyticsPage() {
     if (overviewResponse.ok) setOverview(await overviewResponse.json());
     else failures.push(await readApiErrorMessage(overviewResponse, "overview"));
     if (seriesResponse.ok) setSeries(await seriesResponse.json());
-    else failures.push(await readApiErrorMessage(seriesResponse, "daily click history"));
+    else failures.push(await readApiErrorMessage(seriesResponse, `${granularity} click history`));
     if (topResponse.ok) setTopLinks(await topResponse.json());
     else failures.push(await readApiErrorMessage(topResponse, "top links"));
     if (breakdownResponse.ok) setBreakdown(await breakdownResponse.json());
@@ -69,7 +70,7 @@ export function AnalyticsPage() {
 
   useEffect(() => {
     if (org) void load();
-  }, [org, days, dimension]);
+  }, [org, days, dimension, granularity]);
 
   return (
     <WorkspaceLayout title="Analytics" description="Understand link performance and traffic sources.">
@@ -98,6 +99,13 @@ export function AnalyticsPage() {
             <option value="referrer">Referrer</option>
           </select>
         </label>
+        <label>Time series
+          <select value={granularity} onChange={(event) => setGranularity(event.target.value)}>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </label>
         <button onClick={() => void load()} disabled={!org || loading}>
           {loading ? "Loading…" : "Refresh analytics"}
         </button>
@@ -111,7 +119,7 @@ export function AnalyticsPage() {
       </section>}
       {org && <section className="analytics-grid">
         <article className="card">
-          <h2>Daily clicks</h2>
+          <h2>{granularity[0].toUpperCase() + granularity.slice(1)} clicks</h2>
           {!loading && !series.length ? <p className="muted">No click data for this period.</p> : series.map((row, index) => <div className="admin-row" key={`${row.bucket}-${index}`}><span>{row.bucket}</span><strong>{row.count}</strong></div>)}
         </article>
         <article className="card">

@@ -277,6 +277,7 @@ async def test_invite_accept_and_transfer_ownership() -> None:
     )
     assert invite_result.invite_token
     assert len(email_sender.messages) == 1
+    assert f"http://localhost:8080/organizations?invite={invite_result.invite_token}" in email_sender.messages[0].body
 
     accepted_org_id = await service.accept_invite(member_id, invite_result.invite_token)
     assert accepted_org_id == org_id

@@ -44,8 +44,18 @@ class FakeURLService:
             {
                 "id": url_id,
                 "organization_id": organization_id,
+                "owner_user_id": uuid4(),
+                "original_url": "https://example.com",
                 "short_code": "qr-link",
+                "custom_alias": "qr-link",
+                "title": "QR link",
+                "expires_at": None,
+                "one_time": False,
+                "click_limit": None,
+                "is_private": False,
+                "password_hash": None,
                 "is_deleted": False,
+                "is_archived": False,
             },
         )()
 
@@ -144,6 +154,10 @@ def test_urls_router_contract(monkeypatch) -> None:
         },
     )
     assert create_res.status_code == 201
+    created_body = create_res.json()
+    assert created_body["short_url"].endswith("/?link=acme")
+    assert created_body["qr_code_url"].startswith("/api/v1/urls/")
+    assert "organization_id=" in created_body["qr_code_url"]
 
     list_res = client.get(f"/api/v1/urls/organizations/{org_id}")
     assert list_res.status_code == 200
@@ -155,6 +169,13 @@ def test_urls_router_contract(monkeypatch) -> None:
     assert qr_res.status_code == 200
     assert qr_res.headers["content-type"] == "image/png"
     assert qr_res.content.startswith(b"\x89PNG\r\n\x1a\n")
+
+    get_res = client.get(
+        f"/api/v1/urls/{url_id}",
+        params={"organization_id": org_id},
+    )
+    assert get_res.status_code == 200
+    assert get_res.json()["short_code"] == "qr-link"
 
     resolve_res = client.get("/api/v1/urls/resolve/acme")
     assert resolve_res.status_code == 200

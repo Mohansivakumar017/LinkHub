@@ -1,11 +1,13 @@
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.security import generate_refresh_token, hash_token
 from app.infrastructure.db.models.organization import OrganizationRole
 from app.infrastructure.email.sender import (
@@ -287,11 +289,18 @@ class OrganizationService:
     async def _send_invite_email(
         self, organization_name: str, invited_email: str, invite_token: str
     ) -> None:
+        invite_url = (
+            f"{get_settings().public_base_url.rstrip('/')}/organizations"
+            f"?invite={quote(invite_token)}"
+        )
         await self._email_sender.send(
             EmailMessage(
                 to_email=invited_email,
                 subject=f"Invitation to join {organization_name}",
-                body=f"Use this invite token to join organization: {invite_token}",
+                body=(
+                    f"Accept the invitation by opening:\n{invite_url}\n\n"
+                    f"If needed, use this token manually: {invite_token}"
+                ),
             )
         )
 

@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, DateTime, Index, Integer, String, UniqueConstrai
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.infrastructure.db.base import Base
+from app.infrastructure.db.base import Base, utcnow_naive
 
 
 class User(Base):
@@ -26,5 +26,5 @@ class User(Base):
         Integer, default=0, server_default=text("0"), nullable=False
     )
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive, nullable=False)
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive, nullable=False)

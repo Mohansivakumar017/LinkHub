@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.infrastructure.db.base import Base
+from app.infrastructure.db.base import Base, utcnow_naive
 
 
 class ApiKey(Base):
@@ -42,6 +42,6 @@ class ApiKey(Base):
     last_used_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     usage_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=utcnow_naive, nullable=False
     )
     revoked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)

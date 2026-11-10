@@ -6,7 +6,7 @@ from sqlalchemy import JSON, DateTime, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.infrastructure.db.base import Base
+from app.infrastructure.db.base import Base, utcnow_naive
 
 
 class AuditLog(Base):
@@ -26,5 +26,5 @@ class AuditLog(Base):
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
     details: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=utcnow_naive, nullable=False
     )

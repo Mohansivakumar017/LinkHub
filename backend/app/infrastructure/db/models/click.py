@@ -5,7 +5,7 @@ from sqlalchemy import DateTime, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.infrastructure.db.base import Base
+from app.infrastructure.db.base import Base, utcnow_naive
 
 
 class Click(Base):
@@ -32,5 +32,5 @@ class Click(Base):
     country: Mapped[str | None] = mapped_column(String(64), nullable=True)
     city: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False, index=True
+        DateTime, default=utcnow_naive, nullable=False, index=True
     )

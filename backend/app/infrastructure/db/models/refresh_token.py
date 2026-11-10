@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.infrastructure.db.base import Base
+from app.infrastructure.db.base import Base, utcnow_naive
 
 
 class RefreshToken(Base):
@@ -17,7 +17,7 @@ class RefreshToken(Base):
     expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     replaced_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive, nullable=False)
     last_used_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
     user = relationship("User", lazy="joined")

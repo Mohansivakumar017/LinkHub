@@ -227,7 +227,7 @@ class URLService:
         return created, failed
 
     async def bulk_delete(self, organization_id: UUID, requester_user_id: UUID, ids: list[UUID]) -> int:
-        await self._require_membership(organization_id, requester_user_id)
+        await self._require_manager(organization_id, requester_user_id)
         items = []
         for url_id in ids:
             item = await self._urls.get_by_id(url_id)
@@ -308,9 +308,16 @@ class URLService:
 
     @staticmethod
     def _normalize_expiration(value: datetime | None) -> datetime | None:
-        if value is None or value.tzinfo is None:
-            return value
-        return value.astimezone(UTC).replace(tzinfo=None)
+        if value is None:
+            return None
+        normalized = (
+            value
+            if value.tzinfo is None
+            else value.astimezone(UTC).replace(tzinfo=None)
+        )
+        if normalized <= datetime.now(UTC).replace(tzinfo=None):
+            raise ValueError("expiration must be in the future")
+        return normalized
 
     async def _resolve_short_code(self, custom_alias: str | None) -> str:
         if custom_alias:

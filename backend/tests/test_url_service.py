@@ -17,13 +17,14 @@ class FakeSession:
 
 
 class FakeMemberRepo:
-    def __init__(self, allow: bool = True) -> None:
+    def __init__(self, allow: bool = True, role: str = "owner") -> None:
         self.allow = allow
+        self.role = role
 
     async def get_membership(self, organization_id, user_id):
         if not self.allow:
             return None
-        return SimpleNamespace(role="owner")
+        return SimpleNamespace(role=self.role)
 
 
 class FakeURLRepo:
@@ -121,6 +122,19 @@ async def test_url_lifecycle_and_bulk() -> None:
 
 
 @pytest.mark.asyncio
+async def test_bulk_delete_requires_manager_role() -> None:
+    service = URLService(
+        session=FakeSession(),
+        url_repo=FakeURLRepo(),
+        membership_repo=FakeMemberRepo(True, role="member"),
+        cache=FakeCache(),
+    )
+
+    with pytest.raises(URLPermissionDeniedError, match="manager"):
+        await service.bulk_delete(uuid4(), uuid4(), [uuid4()])
+
+
+@pytest.mark.asyncio
 async def test_create_url_normalizes_timezone_aware_expiration() -> None:
     session = FakeSession()
     repo = FakeURLRepo()
@@ -140,6 +154,24 @@ async def test_create_url_normalizes_timezone_aware_expiration() -> None:
     )
 
     assert created.expires_at == expiration.replace(tzinfo=None)
+
+
+@pytest.mark.asyncio
+async def test_create_url_rejects_past_expiration() -> None:
+    service = URLService(
+        session=FakeSession(),
+        url_repo=FakeURLRepo(),
+        membership_repo=FakeMemberRepo(True),
+        cache=FakeCache(),
+    )
+
+    with pytest.raises(ValueError, match="expiration must be in the future"):
+        await service.create_url(
+            uuid4(),
+            uuid4(),
+            original_url="https://example.com",
+            expires_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=1),
+        )
 
 
 @pytest.mark.asyncio

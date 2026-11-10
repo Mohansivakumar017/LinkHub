@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { apiBaseUrl } from "../../shared/api/client";
 import { useSession } from "../../shared/session/SessionProvider";
@@ -25,6 +25,24 @@ export function WorkspaceApp() {
   });
   const [canResendVerification, setCanResendVerification] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const linkedMode = params.get("mode");
+    const linkedToken = params.get("token");
+    if (
+      (linkedMode === "verify" || linkedMode === "reset")
+      && linkedToken
+    ) {
+      setMode(linkedMode);
+      setToken(linkedToken);
+      setMessage(
+        linkedMode === "verify"
+          ? "Your verification link is ready. Submit it to verify your email."
+          : "Your reset link is ready. Choose a new password.",
+      );
+    }
+  }, [location.search]);
 
   const isLogin = mode === "login";
   const isRegister = mode === "register";

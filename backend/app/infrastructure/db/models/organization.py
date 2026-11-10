@@ -6,7 +6,7 @@ from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, UniqueConstrai
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.infrastructure.db.base import Base
+from app.infrastructure.db.base import Base, utcnow_naive
 
 
 class OrganizationRole(StrEnum):
@@ -32,12 +32,12 @@ class Organization(Base):
         index=True,
     )
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=utcnow_naive, nullable=False
     )
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime,
-        default=datetime.datetime.utcnow,
-        onupdate=datetime.datetime.utcnow,
+        default=utcnow_naive,
+        onupdate=utcnow_naive,
         nullable=False,
     )
 
@@ -70,7 +70,7 @@ class OrganizationMember(Base):
         nullable=False,
     )
     joined_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=utcnow_naive, nullable=False
     )
 
 
@@ -107,5 +107,5 @@ class OrganizationInvite(Base):
     accepted_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     revoked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, nullable=False
+        DateTime, default=utcnow_naive, nullable=False
     )

@@ -253,6 +253,7 @@ async def test_email_verification_flow() -> None:
 
     await service.send_verification_email("user@example.com")
     assert len(email_sender.sent_messages) == 1
+    assert "http://localhost:8080/auth?mode=verify&token=" in email_sender.sent_messages[0].body
 
     token = create_email_verification_token(subject=str(user.id))
     await service.verify_email(token)
@@ -283,6 +284,7 @@ async def test_password_reset_flow() -> None:
     )
     await service.request_password_reset(user.email)
     assert len(email_sender.sent_messages) == 1
+    assert "http://localhost:8080/auth?mode=reset&token=" in email_sender.sent_messages[0].body
     token = email_sender.sent_messages[0].body.rsplit(" ", 1)[-1]
     token_hash = hash_token(token)
     stored_token = reset_token_repo.tokens_by_hash[token_hash]
