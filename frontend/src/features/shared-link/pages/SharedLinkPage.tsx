@@ -24,10 +24,13 @@ export function SharedLinkPage() {
       setError("");
 
       const secret = supplied ?? password;
-      const headers: HeadersInit = tokens?.accessToken
-        ? { Authorization: `Bearer ${tokens.accessToken}` }
-        : {};
-      if (secret) headers["X-Link-Password"] = secret;
+      const headers = new Headers();
+      if (tokens?.accessToken) {
+        headers.set("Authorization", `Bearer ${tokens.accessToken}`);
+      }
+      if (secret) {
+        headers.set("X-Link-Password", secret);
+      }
       let response: Response;
       try {
         response = await fetch(

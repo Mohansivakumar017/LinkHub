@@ -251,7 +251,8 @@ export function LinksPage() {
   async function resolveLink(link: LinkItem, secret: string, destinationWindow: Window) {
     setOpeningLink(true);
     setLinkPasswordError("");
-    const headers: HeadersInit = secret ? { "X-Link-Password": secret } : {};
+    const headers = new Headers();
+    if (secret) headers.set("X-Link-Password", secret);
     const r = await api.request(
       `${apiBaseUrl}/urls/resolve/${encodeURIComponent(link.short_code)}`,
       { cache: "no-store", headers },
